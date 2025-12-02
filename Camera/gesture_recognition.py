@@ -14,8 +14,11 @@ class GestureRecognizer:
         )
         self.mp_drawing = mp.solutions.drawing_utils
         
-        # 用于跟踪头部位置历史（用于点头/摇头检测）
-        self.nose_history = deque(maxlen=15)
+        # 用于跟踪头部位置历史（点头检测）
+        self.nose_y_history = deque(maxlen=15)
+        
+        # 用于跟踪头部位置历史（摇头检测）
+        self.nose_x_history = deque(maxlen=15)
         
         # 用于跟踪手部位置（用于挥手检测）
         self.wrist_history = deque(maxlen=10)
@@ -83,24 +86,37 @@ class GestureRecognizer:
         nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
         nose_y = nose.y * image_height
         
-        self.nose_history.append(('y', nose_y))
+        self.nose_y_history.append(nose_y)
         
-        if len(self.nose_history) >= 12:
-            positions = [p[1] for p in self.nose_history]
+        if len(self.nose_y_history) >= 12:
+            positions = list(self.nose_y_history)
             
-            # 寻找上下运动模式
+            # 计算运动范围
+            max_y = max(positions)
+            min_y = min(positions)
+            movement_range = max_y - min_y
+            
+            # 运动范围必须足够大（至少20像素）
+            if movement_range < 20:
+                return False
+            
+            # 寻找上下运动模式（更严格的阈值）
             peaks = 0
             valleys = 0
             
-            for i in range(1, len(positions) - 1):
-                # 检测波峰（向下然后向上）
-                if positions[i] > positions[i-1] + 3 and positions[i] > positions[i+1] + 3:
+            for i in range(2, len(positions) - 2):
+                # 检测波峰（向下移动）- 使用更大的阈值
+                if (positions[i] > positions[i-1] + 8 and 
+                    positions[i] > positions[i-2] + 5 and
+                    positions[i] > positions[i+1] + 8):
                     peaks += 1
-                # 检测波谷（向上然后向下）
-                elif positions[i] < positions[i-1] - 3 and positions[i] < positions[i+1] - 3:
+                # 检测波谷（向上移动）
+                elif (positions[i] < positions[i-1] - 8 and 
+                      positions[i] < positions[i-2] - 5 and
+                      positions[i] < positions[i+1] - 8):
                     valleys += 1
             
-            # 点头应该有明显的上下运动
+            # 点头应该有至少1个明显的波峰和波谷
             if peaks >= 1 and valleys >= 1:
                 return True
         
@@ -111,24 +127,35 @@ class GestureRecognizer:
         nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
         nose_x = nose.x * image_width
         
-        self.nose_history.append(('x', nose_x))
+        self.nose_x_history.append(nose_x)
         
-        if len(self.nose_history) >= 12:
-            # 只考虑最近的位置（用于摇头检测）
-            recent = [p for p in self.nose_history if p[0] == 'x']
-            if len(recent) >= 8:
-                positions = [p[1] for p in recent[-8:]]
-                
-                # 检测左右摆动
-                direction_changes = 0
-                for i in range(1, len(positions) - 1):
-                    # 检测方向改变
-                    if (positions[i] > positions[i-1] + 5 and positions[i] > positions[i+1] + 5) or \
-                       (positions[i] < positions[i-1] - 5 and positions[i] < positions[i+1] - 5):
-                        direction_changes += 1
-                
-                if direction_changes >= 2:
-                    return True
+        if len(self.nose_x_history) >= 10:
+            positions = list(self.nose_x_history)
+            
+            # 计算运动范围
+            max_x = max(positions)
+            min_x = min(positions)
+            movement_range = max_x - min_x
+            
+            # 运动范围必须足够大（至少30像素）
+            if movement_range < 30:
+                return False
+            
+            # 检测左右摆动
+            direction_changes = 0
+            for i in range(2, len(positions) - 2):
+                # 检测方向改变（波峰或波谷）
+                if (positions[i] > positions[i-1] + 10 and 
+                    positions[i] > positions[i-2] + 5 and
+                    positions[i] > positions[i+1] + 10):
+                    direction_changes += 1
+                elif (positions[i] < positions[i-1] - 10 and 
+                      positions[i] < positions[i-2] - 5 and
+                      positions[i] < positions[i+1] - 10):
+                    direction_changes += 1
+            
+            if direction_changes >= 2:
+                return True
         
         return False
     
@@ -198,17 +225,21 @@ class GestureRecognizer:
                 elif self.detect_nod(landmarks, h):
                     gesture_detected = "Yes"
                     self.last_gesture_time = current_time
-                    self.nose_history.clear()
+                    self.nose_y_history.clear()
                 elif self.detect_shake(landmarks, w):
                     gesture_detected = "No"
                     self.last_gesture_time = current_time
-                    self.nose_history.clear()
+                    self.nose_x_history.clear()
         
         return image, gesture_detected
     
     def run(self):
         """运行摄像头捕获和动作识别"""
         cap = cv2.VideoCapture(0)
+        
+        if not cap.isOpened():
+            print("错误：无法打开摄像头")
+            return
         
         print("=" * 50)
         print("智能盆栽动作识别系统")
@@ -218,55 +249,72 @@ class GestureRecognizer:
         print("  - 跳跃 → 输出: Jump")
         print("  - 点头 → 输出: Yes")
         print("  - 摇头 → 输出: No")
-        print("\n按 'q' 退出程序")
+        print("\n按 'q' 键或关闭窗口退出程序")
         print("=" * 50)
         
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                print("无法获取摄像头画面")
-                break
-            
-            # 镜像翻转，使显示更自然
-            frame = cv2.flip(frame, 1)
-            
-            # 处理帧
-            processed_frame, gesture = self.process_frame(frame)
-            
-            # 如果检测到动作，显示并输出
-            if gesture:
-                print(f"\n检测到动作: {gesture}")
+        window_name = 'Smart Plant - Gesture Recognition'
+        cv2.namedWindow(window_name)
+        
+        try:
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    print("无法获取摄像头画面")
+                    break
+                
+                # 镜像翻转，使显示更自然
+                frame = cv2.flip(frame, 1)
+                
+                # 处理帧
+                processed_frame, gesture = self.process_frame(frame)
+                
+                # 如果检测到动作，显示并输出
+                if gesture:
+                    print(f"\n检测到动作: {gesture}")
+                    cv2.putText(
+                        processed_frame,
+                        f"Detected: {gesture}",
+                        (10, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.5,
+                        (0, 255, 0),
+                        3
+                    )
+                
+                # 显示提示信息
                 cv2.putText(
                     processed_frame,
-                    f"Detected: {gesture}",
-                    (10, 50),
+                    "Press 'q' to quit",
+                    (10, processed_frame.shape[0] - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    1.5,
-                    (0, 255, 0),
-                    3
+                    0.6,
+                    (255, 255, 255),
+                    2
                 )
-            
-            # 显示提示信息
-            cv2.putText(
-                processed_frame,
-                "Press 'q' to quit",
-                (10, processed_frame.shape[0] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 255),
-                2
-            )
-            
-            # 显示画面
-            cv2.imshow('Smart Plant - Gesture Recognition', processed_frame)
-            
-            # 按'q'退出
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                
+                # 显示画面
+                cv2.imshow(window_name, processed_frame)
+                
+                # 按'q'退出或检查窗口是否被关闭
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    print("\n用户按下 'q' 键，正在退出...")
+                    break
+                
+                # 检查窗口是否被关闭
+                if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                    print("\n窗口被关闭，正在退出...")
+                    break
         
-        cap.release()
-        cv2.destroyAllWindows()
-        self.pose.close()
+        except KeyboardInterrupt:
+            print("\n\n检测到 Ctrl+C，正在退出...")
+        
+        finally:
+            cap.release()
+            cv2.destroyAllWindows()
+            self.pose.close()
+            print("程序已安全退出")
+
 
 if __name__ == "__main__":
     recognizer = GestureRecognizer()
