@@ -48,6 +48,13 @@
 确保你的电脑上安装了Python 3.8或更高版本。
 
 ### 2. 安装依赖包
+考虑到大家环境可能不一样，我推荐大家建造一个LOTplanter环境再进行（可选）
+```bash
+conda create -n LOTplanter python=3.11 -y
+
+conda activate LOTplanter
+
+```
 打开命令行（Windows: cmd 或 PowerShell，Mac: Terminal），进入项目文件夹，运行：
 
 ```bash
