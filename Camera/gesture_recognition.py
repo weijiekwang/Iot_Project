@@ -23,8 +23,8 @@ class GestureRecognizer:
         # 用于跟踪手部位置（用于挥手检测）
         self.wrist_history = deque(maxlen=10)
         
-        # 用于跟踪跳跃
-        self.hip_height_history = deque(maxlen=20)
+        # 用于跟踪鼓掌动作
+        self.clap_history = deque(maxlen=10)
         
         # 冷却时间，避免重复识别
         self.last_gesture_time = 0
@@ -96,24 +96,24 @@ class GestureRecognizer:
             min_y = min(positions)
             movement_range = max_y - min_y
             
-            # 运动范围必须足够大（至少20像素）
-            if movement_range < 20:
+            # 降低运动范围要求（从12降到8像素）
+            if movement_range < 8:
                 return False
             
-            # 寻找上下运动模式（更严格的阈值）
+            # 寻找上下运动模式（降低阈值）
             peaks = 0
             valleys = 0
             
             for i in range(2, len(positions) - 2):
-                # 检测波峰（向下移动）- 使用更大的阈值
-                if (positions[i] > positions[i-1] + 8 and 
-                    positions[i] > positions[i-2] + 5 and
-                    positions[i] > positions[i+1] + 8):
+                # 检测波峰（向下移动）- 降低阈值
+                if (positions[i] > positions[i-1] + 3 and 
+                    positions[i] > positions[i-2] + 2 and
+                    positions[i] > positions[i+1] + 3):
                     peaks += 1
                 # 检测波谷（向上移动）
-                elif (positions[i] < positions[i-1] - 8 and 
-                      positions[i] < positions[i-2] - 5 and
-                      positions[i] < positions[i+1] - 8):
+                elif (positions[i] < positions[i-1] - 3 and 
+                      positions[i] < positions[i-2] - 2 and
+                      positions[i] < positions[i+1] - 3):
                     valleys += 1
             
             # 点头应该有至少1个明显的波峰和波谷
@@ -137,49 +137,137 @@ class GestureRecognizer:
             min_x = min(positions)
             movement_range = max_x - min_x
             
-            # 运动范围必须足够大（至少30像素）
-            if movement_range < 30:
+            # 提高运动范围要求（从15提高到25像素）
+            if movement_range < 25:
                 return False
             
             # 检测左右摆动
             direction_changes = 0
-            for i in range(2, len(positions) - 2):
-                # 检测方向改变（波峰或波谷）
-                if (positions[i] > positions[i-1] + 10 and 
-                    positions[i] > positions[i-2] + 5 and
-                    positions[i] > positions[i+1] + 10):
+            for i in range(1, len(positions) - 1):
+                # 检测方向改变（波峰或波谷）- 提高阈值
+                if (positions[i] > positions[i-1] + 5 and 
+                    positions[i] > positions[i+1] + 5):
                     direction_changes += 1
-                elif (positions[i] < positions[i-1] - 10 and 
-                      positions[i] < positions[i-2] - 5 and
-                      positions[i] < positions[i+1] - 10):
-                    direction_changes += 1
+                elif (positions[i] < positions[i-1] - 5 and 
+                      positions[i] < positions[i+1] - 5):
+                    direction_changes >= 1
             
+            # 要求至少2次方向改变
             if direction_changes >= 2:
                 return True
         
         return False
     
-    def detect_jump(self, landmarks, image_height):
-        """检测跳跃"""
-        # 使用臀部的平均高度来检测跳跃
+    def detect_raise_hands(self, landmarks, image_height):
+        """检测双手举高"""
+        # 获取关键点
+        left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
+        right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
+        left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
+        right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
+        nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
+        left_elbow = landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value]
+        right_elbow = landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW.value]
+        
+        # 检查双手是否都举高（高于头部）
+        left_hand_raised = (
+            left_wrist.y < nose.y and  # 手腕高于鼻子
+            left_wrist.y < left_shoulder.y - 0.1 and  # 手腕明显高于肩膀
+            left_elbow.y < left_shoulder.y  # 手肘也要抬起
+        )
+        
+        right_hand_raised = (
+            right_wrist.y < nose.y and
+            right_wrist.y < right_shoulder.y - 0.1 and
+            right_elbow.y < right_shoulder.y
+        )
+        
+        # 双手都举起来
+        return left_hand_raised and right_hand_raised
+    
+    def detect_hands_on_hips(self, landmarks, image_width):
+        """检测双手叉腰"""
+        # 获取关键点
+        left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
+        right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
         left_hip = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value]
         right_hip = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value]
+        left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
+        right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
         
-        avg_hip_y = ((left_hip.y + right_hip.y) / 2) * image_height
+        # 转换为像素坐标
+        left_wrist_x = left_wrist.x * image_width
+        right_wrist_x = right_wrist.x * image_width
+        left_hip_x = left_hip.x * image_width
+        right_hip_x = right_hip.x * image_width
         
-        self.hip_height_history.append(avg_hip_y)
+        # 检查双手是否在腰部/臀部位置
+        # 手腕的y坐标应该在肩膀和臀部之间
+        left_hand_at_waist = (
+            left_wrist.y > left_shoulder.y + 0.1 and  # 手腕低于肩膀
+            left_wrist.y < left_hip.y + 0.15 and  # 手腕在臀部附近或以上
+            abs(left_wrist_x - left_hip_x) < 80  # 手腕在臀部水平位置附近
+        )
         
-        if len(self.hip_height_history) >= 15:
-            positions = list(self.hip_height_history)
+        right_hand_at_waist = (
+            right_wrist.y > right_shoulder.y + 0.1 and
+            right_wrist.y < right_hip.y + 0.15 and
+            abs(right_wrist_x - right_hip_x) < 80
+        )
+        
+        # 双手都在腰部位置
+        return left_hand_at_waist and right_hand_at_waist
+    
+    def detect_clap(self, landmarks, image_width, image_height):
+        """检测鼓掌动作"""
+        # 获取双手手腕位置
+        left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
+        right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
+        left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
+        right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
+        
+        # 转换为像素坐标
+        left_wrist_pos = (left_wrist.x * image_width, left_wrist.y * image_height)
+        right_wrist_pos = (right_wrist.x * image_width, right_wrist.y * image_height)
+        
+        # 计算双手之间的距离
+        hands_distance = self.calculate_distance(left_wrist_pos, right_wrist_pos)
+        
+        # 双手都应该在胸前位置（高于腰部，低于肩膀上方）
+        hands_in_position = (
+            left_wrist.y > left_shoulder.y - 0.2 and
+            left_wrist.y < left_shoulder.y + 0.3 and
+            right_wrist.y > right_shoulder.y - 0.2 and
+            right_wrist.y < right_shoulder.y + 0.3
+        )
+        
+        if hands_in_position:
+            self.clap_history.append(hands_distance)
             
-            # 找到最近的最低点和当前位置
-            recent_min = min(positions[-10:])
-            current = positions[-1]
-            
-            # 如果当前位置明显低于最近的最低点（说明身体向上移动了）
-            # y坐标越小表示越高
-            if recent_min - current > 30:
-                return True
+            if len(self.clap_history) >= 8:
+                distances = list(self.clap_history)
+                
+                # 检测双手距离的快速变化（靠近和分开）
+                min_distance = min(distances)
+                max_distance = max(distances)
+                
+                # 如果距离变化范围大（说明在拍手）
+                if max_distance - min_distance > 80:
+                    # 检测至少一次靠近-分开的模式
+                    close_count = 0
+                    far_count = 0
+                    
+                    for d in distances:
+                        if d < min_distance + 40:
+                            close_count += 1
+                        if d > max_distance - 40:
+                            far_count += 1
+                    
+                    # 如果有明显的靠近和分开
+                    if close_count >= 2 and far_count >= 2:
+                        return True
+        else:
+            self.clap_history.clear()
         
         return False
     
@@ -214,10 +302,16 @@ class GestureRecognizer:
             # 检查冷却时间
             if current_time - self.last_gesture_time > self.gesture_cooldown:
                 # 按优先级检测动作
-                if self.detect_jump(landmarks, h):
-                    gesture_detected = "Jump"
+                if self.detect_raise_hands(landmarks, h):
+                    gesture_detected = "Wow"
                     self.last_gesture_time = current_time
-                    self.hip_height_history.clear()
+                elif self.detect_hands_on_hips(landmarks, w):
+                    gesture_detected = "Cool"
+                    self.last_gesture_time = current_time
+                elif self.detect_clap(landmarks, w, h):
+                    gesture_detected = "Good"
+                    self.last_gesture_time = current_time
+                    self.clap_history.clear()
                 elif self.detect_wave(landmarks, w, h):
                     gesture_detected = "Hi"
                     self.last_gesture_time = current_time
@@ -246,7 +340,9 @@ class GestureRecognizer:
         print("=" * 50)
         print("支持的动作:")
         print("  - 挥手打招呼 → 输出: Hi")
-        print("  - 跳跃 → 输出: Jump")
+        print("  - 双手举高 → 输出: Wow")
+        print("  - 双手叉腰 → 输出: Cool")
+        print("  - 鼓掌 → 输出: Good")
         print("  - 点头 → 输出: Yes")
         print("  - 摇头 → 输出: No")
         print("\n按 'q' 键或关闭窗口退出程序")
