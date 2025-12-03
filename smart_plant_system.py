@@ -3,10 +3,12 @@ import mediapipe as mp
 import numpy as np
 from collections import deque
 import time
+import speech_recognition as sr
+import threading
 
-class GestureRecognizer:
+class SmartPlantSystem:
     def __init__(self):
-        # 初始化 MediaPipe Pose
+        # 初始化动作识别
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(
             min_detection_confidence=0.5,
@@ -14,44 +16,50 @@ class GestureRecognizer:
         )
         self.mp_drawing = mp.solutions.drawing_utils
         
-        # 用于跟踪头部位置历史（点头检测）
+        # 历史记录
         self.nose_y_history = deque(maxlen=15)
-        
-        # 用于跟踪头部位置历史（摇头检测）
         self.nose_x_history = deque(maxlen=15)
-        
-        # 用于跟踪手部位置（用于挥手检测）
         self.wrist_history = deque(maxlen=10)
-        
-        # 用于跟踪鼓掌动作
         self.clap_history = deque(maxlen=10)
         
-        # 冷却时间，避免重复识别
+        # 冷却时间
         self.last_gesture_time = 0
-        self.gesture_cooldown = 2.0  # 2秒冷却时间
+        self.gesture_cooldown = 2.0
         
+        # 初始化语音识别
+        self.recognizer = sr.Recognizer()
+        self.microphone = sr.Microphone()
+        self.is_listening = True
+        self.latest_speech = ""
+        
+        # 调整环境噪音
+        print("正在校准麦克风...")
+        try:
+            with self.microphone as source:
+                self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            print("麦克风校准完成！")
+        except Exception as e:
+            print(f"麦克风初始化失败: {e}")
+            print("将继续运行，但语音识别可能不可用")
+    
     def calculate_distance(self, point1, point2):
         """计算两点之间的欧几里得距离"""
         return np.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
     
     def detect_wave(self, landmarks, image_width, image_height):
         """检测挥手打招呼"""
-        # 获取右手腕和左手腕的位置
         right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
         left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
         right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
         left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
         nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
         
-        # 记录手腕位置
         wrist_pos = None
         is_hand_raised = False
         
-        # 检查右手是否举起（高于肩膀且靠近头部）
         if right_wrist.y < right_shoulder.y and right_wrist.y < nose.y + 0.1:
             wrist_pos = (right_wrist.x * image_width, right_wrist.y * image_height)
             is_hand_raised = True
-        # 检查左手是否举起
         elif left_wrist.y < left_shoulder.y and left_wrist.y < nose.y + 0.1:
             wrist_pos = (left_wrist.x * image_width, left_wrist.y * image_height)
             is_hand_raised = True
@@ -59,21 +67,17 @@ class GestureRecognizer:
         if is_hand_raised and wrist_pos:
             self.wrist_history.append(wrist_pos)
             
-            # 如果有足够的历史数据，检测左右摆动
             if len(self.wrist_history) >= 8:
                 positions = list(self.wrist_history)
-                # 计算水平位置的变化
                 x_positions = [p[0] for p in positions]
                 x_changes = [x_positions[i] - x_positions[i-1] for i in range(1, len(x_positions))]
                 
-                # 检测是否有明显的左右摆动（变化方向改变）
                 direction_changes = 0
                 for i in range(1, len(x_changes)):
                     if (x_changes[i] > 5 and x_changes[i-1] < -5) or \
                        (x_changes[i] < -5 and x_changes[i-1] > 5):
                         direction_changes += 1
                 
-                # 如果有至少2次方向改变，认为是挥手
                 if direction_changes >= 2:
                     return True
         else:
@@ -90,33 +94,26 @@ class GestureRecognizer:
         
         if len(self.nose_y_history) >= 12:
             positions = list(self.nose_y_history)
-            
-            # 计算运动范围
             max_y = max(positions)
             min_y = min(positions)
             movement_range = max_y - min_y
             
-            # 降低运动范围要求（从12降到8像素）
             if movement_range < 8:
                 return False
             
-            # 寻找上下运动模式（降低阈值）
             peaks = 0
             valleys = 0
             
             for i in range(2, len(positions) - 2):
-                # 检测波峰（向下移动）- 降低阈值
                 if (positions[i] > positions[i-1] + 3 and 
                     positions[i] > positions[i-2] + 2 and
                     positions[i] > positions[i+1] + 3):
                     peaks += 1
-                # 检测波谷（向上移动）
                 elif (positions[i] < positions[i-1] - 3 and 
                       positions[i] < positions[i-2] - 2 and
                       positions[i] < positions[i+1] - 3):
                     valleys += 1
             
-            # 点头应该有至少1个明显的波峰和波谷
             if peaks >= 1 and valleys >= 1:
                 return True
         
@@ -131,28 +128,22 @@ class GestureRecognizer:
         
         if len(self.nose_x_history) >= 10:
             positions = list(self.nose_x_history)
-            
-            # 计算运动范围
             max_x = max(positions)
             min_x = min(positions)
             movement_range = max_x - min_x
             
-            # 提高运动范围要求（从15提高到25像素）
             if movement_range < 25:
                 return False
             
-            # 检测左右摆动
             direction_changes = 0
             for i in range(1, len(positions) - 1):
-                # 检测方向改变（波峰或波谷）- 提高阈值
                 if (positions[i] > positions[i-1] + 5 and 
                     positions[i] > positions[i+1] + 5):
                     direction_changes += 1
                 elif (positions[i] < positions[i-1] - 5 and 
                       positions[i] < positions[i+1] - 5):
-                    direction_changes >= 1
+                    direction_changes += 1
             
-            # 要求至少2次方向改变
             if direction_changes >= 2:
                 return True
         
@@ -160,7 +151,6 @@ class GestureRecognizer:
     
     def detect_raise_hands(self, landmarks, image_height):
         """检测双手举高"""
-        # 获取关键点
         left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
         right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
         left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
@@ -169,11 +159,10 @@ class GestureRecognizer:
         left_elbow = landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value]
         right_elbow = landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW.value]
         
-        # 检查双手是否都举高（高于头部）
         left_hand_raised = (
-            left_wrist.y < nose.y and  # 手腕高于鼻子
-            left_wrist.y < left_shoulder.y - 0.1 and  # 手腕明显高于肩膀
-            left_elbow.y < left_shoulder.y  # 手肘也要抬起
+            left_wrist.y < nose.y and
+            left_wrist.y < left_shoulder.y - 0.1 and
+            left_elbow.y < left_shoulder.y
         )
         
         right_hand_raised = (
@@ -182,58 +171,20 @@ class GestureRecognizer:
             right_elbow.y < right_shoulder.y
         )
         
-        # 双手都举起来
         return left_hand_raised and right_hand_raised
-    
-    def detect_hands_on_hips(self, landmarks, image_width):
-        """检测双手叉腰"""
-        # 获取关键点
-        left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
-        right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
-        left_hip = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value]
-        right_hip = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value]
-        left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
-        right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
-        
-        # 转换为像素坐标
-        left_wrist_x = left_wrist.x * image_width
-        right_wrist_x = right_wrist.x * image_width
-        left_hip_x = left_hip.x * image_width
-        right_hip_x = right_hip.x * image_width
-        
-        # 检查双手是否在腰部/臀部位置
-        # 手腕的y坐标应该在肩膀和臀部之间
-        left_hand_at_waist = (
-            left_wrist.y > left_shoulder.y + 0.1 and  # 手腕低于肩膀
-            left_wrist.y < left_hip.y + 0.15 and  # 手腕在臀部附近或以上
-            abs(left_wrist_x - left_hip_x) < 80  # 手腕在臀部水平位置附近
-        )
-        
-        right_hand_at_waist = (
-            right_wrist.y > right_shoulder.y + 0.1 and
-            right_wrist.y < right_hip.y + 0.15 and
-            abs(right_wrist_x - right_hip_x) < 80
-        )
-        
-        # 双手都在腰部位置
-        return left_hand_at_waist and right_hand_at_waist
     
     def detect_clap(self, landmarks, image_width, image_height):
         """检测鼓掌动作"""
-        # 获取双手手腕位置
         left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
         right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
         left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
         right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
         
-        # 转换为像素坐标
         left_wrist_pos = (left_wrist.x * image_width, left_wrist.y * image_height)
         right_wrist_pos = (right_wrist.x * image_width, right_wrist.y * image_height)
         
-        # 计算双手之间的距离
         hands_distance = self.calculate_distance(left_wrist_pos, right_wrist_pos)
         
-        # 双手都应该在胸前位置（高于腰部，低于肩膀上方）
         hands_in_position = (
             left_wrist.y > left_shoulder.y - 0.2 and
             left_wrist.y < left_shoulder.y + 0.3 and
@@ -246,24 +197,13 @@ class GestureRecognizer:
             
             if len(self.clap_history) >= 8:
                 distances = list(self.clap_history)
-                
-                # 检测双手距离的快速变化（靠近和分开）
                 min_distance = min(distances)
                 max_distance = max(distances)
                 
-                # 如果距离变化范围大（说明在拍手）
                 if max_distance - min_distance > 80:
-                    # 检测至少一次靠近-分开的模式
-                    close_count = 0
-                    far_count = 0
+                    close_count = sum(1 for d in distances if d < min_distance + 40)
+                    far_count = sum(1 for d in distances if d > max_distance - 40)
                     
-                    for d in distances:
-                        if d < min_distance + 40:
-                            close_count += 1
-                        if d > max_distance - 40:
-                            far_count += 1
-                    
-                    # 如果有明显的靠近和分开
                     if close_count >= 2 and far_count >= 2:
                         return True
         else:
@@ -273,23 +213,16 @@ class GestureRecognizer:
     
     def process_frame(self, frame):
         """处理单帧图像"""
-        # 转换为RGB
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image.flags.writeable = False
-        
-        # 进行姿态检测
         results = self.pose.process(image)
-        
-        # 转回BGR
         image.flags.writeable = True
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         
         gesture_detected = None
         current_time = time.time()
         
-        # 如果检测到姿态
         if results.pose_landmarks:
-            # 绘制姿态标记
             self.mp_drawing.draw_landmarks(
                 image,
                 results.pose_landmarks,
@@ -299,14 +232,9 @@ class GestureRecognizer:
             landmarks = results.pose_landmarks.landmark
             h, w, _ = image.shape
             
-            # 检查冷却时间
             if current_time - self.last_gesture_time > self.gesture_cooldown:
-                # 按优先级检测动作
                 if self.detect_raise_hands(landmarks, h):
                     gesture_detected = "Wow"
-                    self.last_gesture_time = current_time
-                elif self.detect_hands_on_hips(landmarks, w):
-                    gesture_detected = "Cool"
                     self.last_gesture_time = current_time
                 elif self.detect_clap(landmarks, w, h):
                     gesture_detected = "Good"
@@ -327,49 +255,75 @@ class GestureRecognizer:
         
         return image, gesture_detected
     
+    def listen_speech(self):
+        """语音识别线程"""
+        while self.is_listening:
+            try:
+                with self.microphone as source:
+                    # 设置较短的超时时间，避免阻塞
+                    audio = self.recognizer.listen(source, timeout=2, phrase_time_limit=8)
+                
+                # 识别语音
+                text = self.recognizer.recognize_google(audio, language='en-US')
+                self.latest_speech = text
+                print(f"\n🎤 你说: {text}")
+                
+                # 这里后续可以接入AI对话API
+                # response = call_ai_api(text)
+                # print(f"🤖 回复: {response}")
+                
+            except sr.WaitTimeoutError:
+                pass  # 超时，继续监听
+            except sr.UnknownValueError:
+                pass  # 无法识别，继续监听
+            except sr.RequestError as e:
+                print(f"语音识别服务错误: {e}")
+                time.sleep(5)
+            except Exception:
+                pass  # 其他错误，继续监听
+    
     def run(self):
-        """运行摄像头捕获和动作识别"""
+        """运行主程序"""
         cap = cv2.VideoCapture(0)
         
         if not cap.isOpened():
             print("错误：无法打开摄像头")
             return
         
-        print("=" * 50)
-        print("智能盆栽动作识别系统")
-        print("=" * 50)
-        print("支持的动作:")
-        print("  - 挥手打招呼 → 输出: Hi")
-        print("  - 双手举高 → 输出: Wow")
-        print("  - 双手叉腰 → 输出: Cool")
-        print("  - 鼓掌 → 输出: Good")
-        print("  - 点头 → 输出: Yes")
-        print("  - 摇头 → 输出: No")
-        print("\n按 'q' 键或关闭窗口退出程序")
-        print("=" * 50)
+        print("=" * 60)
+        print("🌱 智能盆栽交互系统")
+        print("=" * 60)
+        print("📹 动作识别:")
+        print("  - 挥手 → Hi")
+        print("  - 双手举高 → Wow")
+        print("  - 鼓掌 → Good")
+        print("  - 点头 → Yes")
+        print("  - 摇头 → No")
+        print("\n🎤 语音识别: 已启动 (英语)")
+        print("\n按 'q' 键退出")
+        print("=" * 60)
         
-        window_name = 'Smart Plant - Gesture Recognition'
+        # 启动语音识别线程
+        speech_thread = threading.Thread(target=self.listen_speech, daemon=True)
+        speech_thread.start()
+        
+        window_name = 'Smart Plant System'
         cv2.namedWindow(window_name)
         
         try:
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
-                    print("无法获取摄像头画面")
                     break
                 
-                # 镜像翻转，使显示更自然
                 frame = cv2.flip(frame, 1)
-                
-                # 处理帧
                 processed_frame, gesture = self.process_frame(frame)
                 
-                # 如果检测到动作，显示并输出
                 if gesture:
-                    print(f"\n检测到动作: {gesture}")
+                    print(f"\n👋 动作: {gesture}")
                     cv2.putText(
                         processed_frame,
-                        f"Detected: {gesture}",
+                        f"Gesture: {gesture}",
                         (10, 50),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         1.5,
@@ -377,7 +331,18 @@ class GestureRecognizer:
                         3
                     )
                 
-                # 显示提示信息
+                # 显示最新的语音识别结果
+                if self.latest_speech:
+                    cv2.putText(
+                        processed_frame,
+                        f"Speech: {self.latest_speech[:30]}",
+                        (10, processed_frame.shape[0] - 50),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (255, 255, 0),
+                        2
+                    )
+                
                 cv2.putText(
                     processed_frame,
                     "Press 'q' to quit",
@@ -388,16 +353,13 @@ class GestureRecognizer:
                     2
                 )
                 
-                # 显示画面
                 cv2.imshow(window_name, processed_frame)
                 
-                # 按'q'退出或检查窗口是否被关闭
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
                     print("\n用户按下 'q' 键，正在退出...")
                     break
                 
-                # 检查窗口是否被关闭
                 if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
                     print("\n窗口被关闭，正在退出...")
                     break
@@ -406,12 +368,12 @@ class GestureRecognizer:
             print("\n\n检测到 Ctrl+C，正在退出...")
         
         finally:
+            self.is_listening = False
             cap.release()
             cv2.destroyAllWindows()
             self.pose.close()
             print("程序已安全退出")
 
-
 if __name__ == "__main__":
-    recognizer = GestureRecognizer()
-    recognizer.run()
+    system = SmartPlantSystem()
+    system.run()
