@@ -1,0 +1,22 @@
+[
+  {
+    "timestamp": "2025-12-05T14:40:24.877204",
+    "type": "system",
+    "message": "对话模式已开启"
+  },
+  {
+    "timestamp": "2025-12-05T14:40:43.403584",
+    "type": "system",
+    "message": "对话模式已关闭"
+  },
+  {
+    "timestamp": "2025-12-05T14:42:04.378681",
+    "type": "system",
+    "message": "对话模式已开启"
+  },
+  {
+    "timestamp": "2025-12-05T14:42:14.655573",
+    "type": "system",
+    "message": "对话模式已关闭"
+  }
+]

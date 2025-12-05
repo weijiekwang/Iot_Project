@@ -12,10 +12,18 @@ Iot_Project/
 │   ├── README.md
 │   └── TIPS.md
 │
-└── Voice/                     # 语音识别模块（可独立使用）
-    ├── voice_recognition.py
+├── Voice/                     # 语音识别模块（可独立使用）
+│   ├── voice_recognition.py
+│   ├── requirements.txt
+│   ├── README.md
+│   └── 对话功能说明.md
+│
+└── Web/                       # Web监控系统（可独立使用）
+    ├── app.py                 # Flask服务器
     ├── requirements.txt
-    └── README.md
+    ├── README.md
+    └── templates/
+        └── index.html         # 网页界面
 ```
 
 ## 🚀 快速开始
@@ -24,14 +32,17 @@ Iot_Project/
 
 ```bash
 # 创建环境（推荐）
-conda create -n LOTplanter python=3.11 -y
-conda activate LOTplanter
+conda create -n SmartPlanter python=3.11 -y
+conda activate SmartPlanter
 
 # 安装动作识别依赖
 pip install -r Gesture/requirements.txt
 
 # 安装语音识别依赖
 pip install -r Voice/requirements.txt
+
+# 安装Web监控依赖
+pip install -r Web/requirements.txt
 ```
 
 ### 2. 运行程序
@@ -45,6 +56,14 @@ python Gesture/gesture_recognition.py
 
 # 或只测试语音识别
 python Voice/voice_recognition.py
+
+# 或启动Web监控系统（本地）
+python Web/app.py
+# 然后访问 http://localhost:8080
+
+# 或启动Web监控系统（公网）
+python Web/app_public.py
+# 自动生成公网链接，任何人都可访问！
 ```
 
 ## 📖 详细文档
@@ -52,6 +71,8 @@ python Voice/voice_recognition.py
 - **动作识别说明**: [Gesture/README.md](Gesture/README.md)
 - **动作识别技巧**: [Gesture/TIPS.md](Gesture/TIPS.md)
 - **语音识别说明**: [Voice/README.md](Voice/README.md)
+- **对话功能说明**: [Voice/对话功能说明.md](Voice/对话功能说明.md)
+- **Web监控说明**: [Web/README.md](Web/README.md)
 
 ## 🎯 支持的功能
 
@@ -62,9 +83,20 @@ python Voice/voice_recognition.py
 - 点头 → Yes
 - 摇头 → No
 
-### 语音识别
+### 语音识别与对话
 - 实时英语语音识别
+- 对话模式控制
+  - 说 "hello world" 开启对话
+  - 说 "bye bye" 关闭对话
+- 简单对话响应
 - 预留AI对话接口
+
+### Web监控系统 🌐
+- 📊 湿度监控折线图（过去24小时）
+- 💬 网页按钮控制对话开启/关闭
+- 📝 实时活动日志（动作+对话）
+- 🔄 自动刷新（每5秒）
+- 🌡️ 湿度统计（当前/平均/数据点）
 
 ## ⚠️ 注意事项
 
@@ -79,6 +111,26 @@ python Voice/voice_recognition.py
 
 ## 💡 开发建议
 
-- **独立开发**：可以分别在Gesture和Voice文件夹中修改和测试
-- **整合测试**：使用smart_plant_system.py测试完整功能
-- **模块化**：两个模块互不影响，可以独立开发
+- **独立开发**：可以分别在Gesture、Voice和Web文件夹中修改和测试
+- **整合测试**：使用smart_plant_system.py测试动作和语音功能
+- **Web监控**：使用Web/app.py启动监控界面
+- **模块化**：三个模块互不影响，可以独立开发
+
+## 🔗 模块协作
+
+各模块可以通过API相互通信：
+
+```python
+# 动作识别 → Web
+import requests
+requests.post('http://localhost:5000/api/gesture', 
+              json={'gesture': 'Hi'})
+
+# 语音对话 → Web  
+requests.post('http://localhost:5000/api/speech',
+              json={'user': 'hello', 'bot': 'hi there'})
+
+# 湿度传感器 → Web
+requests.post('http://localhost:5000/api/humidity/add',
+              json={'humidity': 75.5})
+```

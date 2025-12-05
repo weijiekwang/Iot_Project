@@ -49,8 +49,8 @@ python smart_plant_system.py
 
 ### 1. 创建conda环境（推荐）
 ```bash
-conda create -n LOTplanter python=3.11 -y
-conda activate LOTplanter
+conda create -n SmartPlanter python=3.11 -y
+conda activate SmartPlanter
 ```
 
 ### 2. 安装依赖包
