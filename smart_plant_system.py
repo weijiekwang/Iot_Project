@@ -31,6 +31,7 @@ class SmartPlantSystem:
         self.microphone = sr.Microphone()
         self.is_listening = True
         self.latest_speech = ""
+        self.conversation_mode = False  # 对话模式标志
         
         # 调整环境噪音
         print("正在校准麦克风...")
@@ -211,6 +212,73 @@ class SmartPlantSystem:
         
         return False
     
+    def generate_response(self, text):
+        """生成回复（简单规则，后续可替换为AI API）"""
+        text = text.lower()
+        
+        # 简单的规则响应
+        if "how are you" in text or "how r u" in text:
+            return "I'm doing great! Thanks for asking. How about you?"
+        
+        elif "what is your name" in text or "your name" in text:
+            return "I'm your smart plant assistant. You can call me Planty!"
+        
+        elif "hello" in text or "hi" in text:
+            return "Hello there! How can I assist you?"
+        
+        elif "help" in text:
+            return "I can chat with you! Try asking me questions or just say 'bye bye' when you're done."
+        
+        elif "thank" in text:
+            return "You're welcome! Happy to help!"
+        
+        elif "weather" in text:
+            return "I'm a plant, so I love sunny weather! But I can't check the actual weather for you yet."
+        
+        elif "water" in text:
+            return "Remember to water your plants regularly! But not too much - we don't like soggy roots!"
+        
+        elif "sing" in text or "song" in text:
+            return "I'm a plant, not a singer! But I appreciate good music!"
+        
+        elif "joke" in text:
+            return "Why did the plant go to therapy? Because it had too many deep roots!"
+        
+        else:
+            # 默认回复（后续可接入AI API）
+            return "I heard you! That's interesting. Tell me more!"
+    
+    def process_conversation(self, text):
+        """处理对话内容"""
+        if not text:
+            return None
+        
+        text_lower = text.lower()
+        
+        # 检查是否是开启对话指令
+        if not self.conversation_mode:
+            if "hello world" in text_lower or "helloworld" in text_lower:
+                self.conversation_mode = True
+                response = "Hello! I'm your smart plant. How can I help you today?"
+                print(f"\n🤖 [对话开启] 回复: {response}")
+                return response
+            else:
+                # 非对话模式下，只返回None
+                return None
+        
+        # 对话模式下处理
+        # 检查是否是关闭对话指令
+        if "bye bye" in text_lower or "bye-bye" in text_lower or "goodbye" in text_lower or "good bye" in text_lower:
+            response = "Have a good day! Goodbye!"
+            print(f"\n🤖 [对话结束] 回复: {response}")
+            self.conversation_mode = False
+            return response
+        
+        # 生成对话响应
+        response = self.generate_response(text_lower)
+        print(f"\n🤖 [对话中] 回复: {response}")
+        return response
+    
     def process_frame(self, frame):
         """处理单帧图像"""
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -268,9 +336,12 @@ class SmartPlantSystem:
                 self.latest_speech = text
                 print(f"\n🎤 你说: {text}")
                 
-                # 这里后续可以接入AI对话API
-                # response = call_ai_api(text)
-                # print(f"🤖 回复: {response}")
+                # 处理对话
+                response = self.process_conversation(text)
+                
+                # 如果有回复，更新显示（后续可以添加语音输出）
+                if response:
+                    self.latest_speech = f"You: {text} | Bot: {response[:30]}..."
                 
             except sr.WaitTimeoutError:
                 pass  # 超时，继续监听
@@ -300,6 +371,9 @@ class SmartPlantSystem:
         print("  - 点头 → Yes")
         print("  - 摇头 → No")
         print("\n🎤 语音识别: 已启动 (英语)")
+        print("💬 对话功能:")
+        print("  - 说 'hello world' 开启对话")
+        print("  - 说 'bye bye' 或 'goodbye' 结束对话")
         print("\n按 'q' 键退出")
         print("=" * 60)
         

@@ -2,16 +2,21 @@
 
 ## 📋 功能说明
 
-系统现在支持**英语语音识别**，可以识别你说的英文内容并显示在屏幕上。
+系统现在支持**英语语音识别**和**对话功能**。
 
 ### 当前功能
 - ✅ 实时英语语音识别
+- ✅ 对话模式（可开启/关闭）
+- ✅ 简单对话响应
 - ✅ 识别结果实时显示
-- ✅ 与动作识别同时运行
+
+### 对话指令
+- 🟢 **开启对话**: 说 "hello world"
+- 🔴 **关闭对话**: 说 "bye bye" 或 "goodbye"
 
 ### 未来功能（预留接口）
 - 🔄 接入AI对话API（如ChatGPT、Claude等）
-- 🔄 语音回复功能
+- 🔄 语音回复功能（TTS）
 - 🔄 中英文混合识别
 
 ## 🎯 三个程序说明
@@ -98,23 +103,65 @@ python voice_recognition.py
 
 1. **启动程序**
 ```bash
-python smart_plant_system.py
+python voice_recognition.py
 ```
 
 2. **等待校准**
    - 程序启动时会自动校准麦克风
    - 校准期间请保持安静
 
-3. **开始说话**
-   - 对着麦克风说英语
-   - 系统会自动识别并显示文字
-   - 识别结果会显示在：
-     - 终端/控制台
-     - 视频窗口底部
+3. **开启对话模式**
+   - 对着麦克风说 **"hello world"**
+   - 系统回复: "Hello! I'm your smart plant. How can I help you today?"
+   - 对话模式开启！
 
-4. **支持的语言**
+4. **开始对话**
+   - 对话模式下，你说的话会得到回复
+   - 识别结果会显示在终端/控制台
+   - 系统会给出文字回复
+
+5. **结束对话**
+   - 说 **"bye bye"** 或 **"goodbye"**
+   - 系统回复: "Have a good day! Goodbye!"
+   - 对话模式关闭
+
+6. **支持的语言**
    - 目前只支持英语 (English)
    - 后续可以扩展其他语言
+
+### 对话功能演示
+
+```
+🎤 你说: hello world
+🤖 回复: Hello! I'm your smart plant. How can I help you today?
+✅ 对话模式已开启！
+
+🎤 你说: how are you
+🤖 回复: I'm doing great! Thanks for asking. How about you?
+
+🎤 你说: tell me a joke
+🤖 回复: Why did the plant go to therapy? Because it had too many deep roots!
+
+🎤 你说: bye bye
+🤖 回复: Have a good day! Goodbye!
+❌ 对话模式已关闭
+```
+
+### 简单对话主题
+
+当前系统支持以下简单对话（预设规则）：
+
+- 问候语: "hello", "hi"
+- 状态询问: "how are you"
+- 自我介绍: "what is your name"
+- 求助: "help"
+- 感谢: "thank you"
+- 天气: "weather"
+- 植物相关: "water"
+- 娱乐: "joke", "sing"
+- 其他话题: 会给出默认回复
+
+**注意**: 这些是简单的规则回复。后续可以接入AI API获得更智能的对话。
 
 ### 识别效果优化
 
