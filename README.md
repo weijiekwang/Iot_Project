@@ -18,12 +18,28 @@ Iot_Project/
 │   ├── README.md
 │   └── 对话功能说明.md
 │
-└── Web/                       # Web监控系统（可独立使用）
-    ├── app.py                 # Flask服务器
-    ├── requirements.txt
-    ├── README.md
-    └── templates/
-        └── index.html         # 网页界面
+├── Web/                       # Web监控系统（可独立使用）
+│   ├── app.py                 # Flask服务器
+│   ├── app_public.py          # 公网访问版
+│   ├── requirements.txt
+│   ├── README.md
+│   ├── 公网访问说明.md
+│   └── templates/
+│       └── index.html         # 网页界面
+│
+└── Hardware/                  # ESP32硬件系统 ⭐新增
+    ├── main.py                # ESP32主程序
+    ├── server.py              # 服务器端程序
+    ├── config.py              # 硬件配置
+    ├── mic_module.py          # 麦克风模块
+    ├── speaker_module.py      # 扬声器模块
+    ├── oled_module.py         # OLED显示
+    ├── camera_module.py       # 摄像头模块
+    ├── wifi_manager.py        # WiFi管理
+    ├── requirements.txt       # 服务器依赖
+    ├── README.md              # 详细说明
+    ├── 部署指南.md             # 完整部署步骤
+    └── upload_to_esp32.sh     # 一键上传脚本
 ```
 
 ## 🚀 快速开始
@@ -64,6 +80,10 @@ python Web/app.py
 # 或启动Web监控系统（公网）
 python Web/app_public.py
 # 自动生成公网链接，任何人都可访问！
+
+# 或启动硬件系统服务器
+python Hardware/server.py
+# 然后上传代码到ESP32
 ```
 
 ## 📖 详细文档
@@ -97,6 +117,14 @@ python Web/app_public.py
 - 📝 实时活动日志（动作+对话）
 - 🔄 自动刷新（每5秒）
 - 🌡️ 湿度统计（当前/平均/数据点）
+
+### ESP32硬件系统 🔌（新增）
+- 🎤 麦克风录音（SPH0645）
+- 🔊 扬声器播放（MAX98357A）
+- 📺 OLED显示（SSD1306）
+- 📸 摄像头动作识别（ESP32-CAM）
+- 📡 WiFi通信（Columbia University）
+- 🔗 与服务器实时交互
 
 ## ⚠️ 注意事项
 
