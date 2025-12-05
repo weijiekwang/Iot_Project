@@ -1,10 +1,10 @@
 # config.py
 
 # ==== WiFi ====
-WIFI_SSID = "你的WiFi名字"
-WIFI_PASSWORD = "你的WiFi密码"
+WIFI_SSID = "Columbia University"
+WIFI_PASSWORD = ""
 
-# ==== 服务器 ====
+# ==== 服务器 ==
 # 用你服务器终端里那行：Running on http://10.207.99.24:8000
 SERVER_BASE_URL = "http://10.207.99.24:8000"
 AUDIO_API_PATH = "/api/stt"
