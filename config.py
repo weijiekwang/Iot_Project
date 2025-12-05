@@ -1,14 +1,13 @@
 # config.py
 
 # ==== WiFi ====
-WIFI_SSID = "Columbia University"
-WIFI_PASSWORD = ""
+WIFI_SSID = "Columbia University"      # 你现在用的 WiFi
+WIFI_PASSWORD = ""                     # 如果这个 WiFi 不需要密码就留空
 
-# ==== 服务器 ==
-# 用你服务器终端里那行：Running on http://10.207.99.24:8000
-SERVER_BASE_URL = "http://10.207.99.24:8000"
+# ==== 服务器 ====
+SERVER_IP = "10.207.99.24"             # 你 server.py 终端里显示的那个 IP
+SERVER_PORT = 8000
 AUDIO_API_PATH = "/api/stt"
-
 DEVICE_ID = "esp32-test-01"
 
 # ==== I2S 麦克风（SPH0645） ====
@@ -18,4 +17,4 @@ MIC_DOUT_PIN = 32   # DOUT
 
 MIC_SAMPLE_RATE = 16000
 MIC_BITS = 16
-MIC_BUFFER_BYTES = 1024    # 一次读 1024 字节
+MIC_BUFFER_BYTES = 1024    # 每次读 1KB
