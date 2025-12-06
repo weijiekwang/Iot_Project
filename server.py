@@ -1,8 +1,9 @@
 # server.py
 # 功能：
-#   1) Web 页面（/）：显示一个“智能盆栽监控系统”的假数据仪表盘
-#   2) /api/stt ：接收 ESP32 发送的原始 PCM，做语音识别，返回 {"text": "..."}
-#   3) /api/tts_test ：在 PC 上把一句话变成 16kHz 16bit mono PCM，给 ESP32 播放
+#   1) Web 页面（/）：显示一个"智能盆栽监控系统"的假数据仪表盘
+#   2) /api/stt ：接收 ESP32 发送的原始 PCM，做语音识别，返回对话响应
+#   3) /api/tts ：将文本转换为语音PCM返回给ESP32
+#   4) 对话模式管理：支持"hello world"开启，"bye bye"关闭
 
 from flask import Flask, request, jsonify, Response
 import io
@@ -15,6 +16,104 @@ import tempfile
 import os
 
 app = Flask(__name__)
+
+# ========= 对话状态管理 =========
+class ConversationManager:
+    def __init__(self):
+        self.conversation_mode = False  # 对话模式标志
+        self.last_response = ""  # 存储最新的回复文本
+
+    def is_active(self):
+        """检查对话模式是否激活"""
+        return self.conversation_mode
+
+    def activate(self):
+        """激活对话模式"""
+        self.conversation_mode = True
+        print("[对话] 对话模式已激活")
+
+    def deactivate(self):
+        """关闭对话模式"""
+        self.conversation_mode = False
+        print("[对话] 对话模式已关闭")
+
+    def process_text(self, text):
+        """处理识别的文本，返回响应和动作"""
+        if not text:
+            print("[对话] 没有识别到文本")
+            return None, None
+
+        text_lower = text.lower()
+        print(f"[对话] 处理文本: '{text_lower}' | 对话模式: {self.conversation_mode}")
+
+        # 检查是否是开启对话指令
+        if not self.conversation_mode:
+            # 严格匹配 "hello world" 或 "hello" 单独出现
+            if "hello world" in text_lower or text_lower.strip() == "hello":
+                self.activate()
+                response = "Hello! I'm your smart plant. How can I help you today?"
+                return response, "start_conversation"
+            else:
+                # 非对话模式下，不回复
+                print("[对话] 非对话模式，忽略输入")
+                return None, None
+
+        # 对话模式下处理
+        print("[对话] 对话模式已激活，处理用户输入")
+
+        # 检查是否是关闭对话指令
+        if "bye bye" in text_lower or "bye-bye" in text_lower or "goodbye" in text_lower or "good bye" in text_lower:
+            response = "Have a good day! Goodbye!"
+            self.deactivate()
+            return response, "end_conversation"
+
+        # 生成对话响应
+        response = self.generate_response(text_lower)
+        print(f"[对话] 生成回复: '{response}'")
+        return response, "continue"
+
+    def generate_response(self, text):
+        """生成对话回复"""
+        # 简单的规则响应（按优先级从高到低匹配）
+
+        # 优先匹配更具体的短语
+        if "how are you" in text:
+            return "I'm doing great! Thanks for asking. How about you?"
+
+        elif "what is your name" in text or "what's your name" in text or "your name" in text:
+            return "I'm your smart plant assistant. You can call me Planty!"
+
+        elif "tell me a joke" in text or "tell a joke" in text:
+            return "Why did the plant go to therapy? Because it had too many deep roots!"
+
+        elif "joke" in text:
+            return "Why did the plant go to therapy? Because it had too many deep roots!"
+
+        elif "sing" in text or "song" in text:
+            return "I'm a plant, not a singer! But I appreciate good music!"
+
+        elif "weather" in text:
+            return "I'm a plant, so I love sunny weather! But I can't check the actual weather for you yet."
+
+        elif "water" in text:
+            return "Remember to water your plants regularly! But not too much - we don't like soggy roots!"
+
+        elif "thank you" in text or "thanks" in text or "thank" in text:
+            return "You're welcome! Happy to help!"
+
+        elif "help" in text:
+            return "I can chat with you! Try asking me questions or just say bye bye when you're done."
+
+        # 问候语（在对话模式下）
+        elif "hello" in text or "hi there" in text or "hi" in text:
+            return "Hello there! How can I assist you?"
+
+        else:
+            # 默认回复
+            return "I heard you! That's interesting. Tell me more!"
+
+# 创建全局对话管理器
+conversation_manager = ConversationManager()
 
 # ========= 简单网页（假数据） =========
 
@@ -294,6 +393,9 @@ INDEX_HTML = """
                 <button class="btn btn-blue">
                     <span>刷新数据（示例按钮）</span>
                 </button>
+                <button class="btn btn-green">
+                    <span>💧 浇水（示例按钮）</span>
+                </button>
             </div>
             <p class="hint">
                 💡 提示：<br>
@@ -320,13 +422,28 @@ recognizer = sr.Recognizer()
 def stt_endpoint():
     """
     接收 ESP32 发送的原始 PCM（16kHz,16bit,mono），
-    转成 WAV 后，用 SpeechRecognition 调用 Google STT。
+    转成 WAV 后，用 SpeechRecognition 调用 Google STT，
+    并返回对话响应和TTS音频。
     """
     raw = request.data
     if not raw:
         return jsonify({"error": "no audio data"}), 400
 
     print(f"[STT] Received audio bytes: {len(raw)}")
+
+    # 检查音频数据是否有效
+    if len(raw) < 1000:
+        print(f"[STT] WARNING: Audio data too short ({len(raw)} bytes)")
+
+    # 检查音频是否全是静音（全为0或非常接近0）
+    import struct
+    samples = struct.unpack(f'{len(raw)//2}h', raw)
+    max_amplitude = max(abs(s) for s in samples)
+    avg_amplitude = sum(abs(s) for s in samples) / len(samples)
+    print(f"[STT] Audio stats - Max amplitude: {max_amplitude}, Avg amplitude: {avg_amplitude:.2f}")
+
+    if max_amplitude < 100:
+        print("[STT] WARNING: Audio appears to be silent or very quiet!")
 
     # 把原始 PCM 包装成 WAV（内存中）
     wav_buf = io.BytesIO()
@@ -341,26 +458,52 @@ def stt_endpoint():
     text = ""
     try:
         with sr.AudioFile(wav_buf) as source:
+            # 调整环境噪音阈值，提高识别率
+            recognizer.adjust_for_ambient_noise(source, duration=0.5)
             audio = recognizer.record(source)
+
+        # 检查音频长度
+        print(f"[STT] Audio duration: {len(audio.frame_data)} bytes")
 
         # 现在用英文，如果想识别中文改成 language="zh-CN"
         text = recognizer.recognize_google(audio, language="en-US")
-        print(f"[STT] {text}")
+        print(f"[STT] User said: {text}")
 
     except sr.UnknownValueError:
-        print("[STT] Speech was not understood.")
+        print("[STT] Speech was not understood (no speech detected or too noisy)")
         text = ""
     except sr.RequestError as e:
         print(f"[STT] API request failed: {e}")
         return jsonify({"error": "stt_request_failed"}), 500
     except Exception as e:
         print(f"[STT] Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": "internal_error"}), 500
 
-    return jsonify({
+    # 处理对话逻辑
+    print(f"[STT] 开始处理对话，识别文本: '{text}'")
+    response_text, action = conversation_manager.process_text(text)
+
+    # 如果有回复，将回复文本存储以便后续TTS请求使用
+    if response_text:
+        print(f"[BOT] Response: {response_text}")
+        # 存储最新的回复文本，供/api/tts接口使用
+        conversation_manager.last_response = response_text
+    else:
+        print("[BOT] No response generated")
+
+    # 返回结果（不包含音频数据，避免ESP32内存问题）
+    result = {
         "text": text,
-        "raw_bytes": len(raw)
-    })
+        "response": response_text if response_text else "",
+        "action": action if action else "",
+        "conversation_active": conversation_manager.is_active(),
+        "has_audio": response_text is not None and response_text != ""
+    }
+
+    print(f"[API] 返回结果: text='{text}', response='{response_text}', action='{action}', conversation_active={conversation_manager.is_active()}")
+    return jsonify(result)
 
 
 # ========= TTS：服务器 -> ESP32（文字转语音 PCM） =========
@@ -420,6 +563,33 @@ def generate_tts_pcm(text: str) -> bytes:
 print("[TTS] Pre-generating TTS PCM ...")
 TTS_PCM = generate_tts_pcm(REPLY_TEXT)
 print("[TTS] Ready.")
+
+
+@app.route("/api/tts", methods=["GET"])
+def tts_endpoint():
+    """
+    根据存储的最新回复文本生成TTS音频，流式返回PCM数据。
+    ESP32直接接收并播放，不需要base64解码，节省内存。
+    """
+    response_text = conversation_manager.last_response
+
+    if not response_text:
+        # 如果没有回复文本，返回空音频
+        return Response(b"", mimetype="application/octet-stream")
+
+    try:
+        # 实时生成TTS音频
+        tts_pcm = generate_tts_pcm(response_text)
+        print(f"[TTS] Sending {len(tts_pcm)} bytes to ESP32")
+
+        # 清空已使用的回复文本
+        conversation_manager.last_response = ""
+
+        return Response(tts_pcm, mimetype="application/octet-stream")
+
+    except Exception as e:
+        print(f"[TTS] Error: {e}")
+        return Response(b"", mimetype="application/octet-stream")
 
 
 @app.route("/api/tts_test", methods=["GET"])

@@ -86,29 +86,32 @@ class SmartPlant:
         """发送音频到服务器，获取识别和回复"""
         if not pcm_bytes:
             return None
-        
+
         url = SERVER_BASE_URL + AUDIO_API_PATH
         headers = {"Content-Type": "application/octet-stream"}
-        
+
         print("Uploading audio...")
-        
+
         try:
             resp = requests.post(url, data=pcm_bytes, headers=headers)
-            
+
             if resp.status_code != 200:
                 print("Server error:", resp.status_code)
                 resp.close()
                 return None
-            
+
             data = resp.json()
             resp.close()
-            
+
             return {
-                "user": data.get("user", ""),
-                "bot": data.get("bot", ""),
-                "action": data.get("action", "")
+                "text": data.get("text", ""),
+                "response": data.get("response", ""),
+                "action": data.get("action", ""),
+                "conversation_active": data.get("conversation_active", False),
+                "has_audio": data.get("has_audio", False),
+                "audio_base64": data.get("audio_base64", "")
             }
-            
+
         except Exception as e:
             print("Upload error:", e)
             return None
@@ -143,9 +146,8 @@ class SmartPlant:
             print("Gesture capture error:", e)
             return None
     
-    def play_response(self, text):
-        """播放语音回复（暂时只显示文字）"""
-        # TODO: 后续可以接入TTS，将文字转语音
+    def play_response(self, text, audio_base64=None):
+        """播放语音回复"""
         if text:
             print("Bot:", text)
             # 截断显示在OLED上（最多3行，每行16个字符）
@@ -155,6 +157,18 @@ class SmartPlant:
                 lines[1] if len(lines) > 1 else "",
                 lines[2] if len(lines) > 2 else ""
             )
+
+        # 如果有音频数据，播放出来
+        if audio_base64:
+            try:
+                import ubinascii
+                # 解码base64音频数据
+                audio_pcm = ubinascii.a2b_base64(audio_base64)
+                print("Playing audio, {} bytes".format(len(audio_pcm)))
+                # 播放音频
+                self.speaker.play_pcm(audio_pcm)
+            except Exception as e:
+                print("Audio play error:", e)
     
     def split_text_to_lines(self, text, max_len):
         """将文本分割成多行"""
@@ -176,71 +190,69 @@ class SmartPlant:
         return lines
     
     def run(self):
-        """主循环"""
+        """主循环 - 持续监听模式"""
         self.oled.show_text("Smart Plant", "Ready!", "")
         time.sleep(1)
-        
+
         print("=" * 50)
         print("Smart Plant System Running")
+        print("Continuous Listening Mode")
+        print("Say 'Hello World' to start conversation")
         print("=" * 50)
-        
+
         try:
             while True:
-                # 定期检查对话状态和动作识别
+                # 持续录音并发送到服务器
+                self.oled.show_text("Listening...", "", "")
+
+                # 录音
+                pcm = self.record_audio(RECORD_SECONDS)
+
+                self.oled.show_text("Processing...", "", "")
+
+                # 发送到服务器
+                result = self.send_audio_to_server(pcm)
+
+                if result:
+                    user_text = result.get("text", "")
+                    response_text = result.get("response", "")
+                    action = result.get("action", "")
+                    has_audio = result.get("has_audio", False)
+                    audio_base64 = result.get("audio_base64", "")
+                    self.conversation_active = result.get("conversation_active", False)
+
+                    if user_text:
+                        print("You:", user_text)
+
+                    if response_text:
+                        # 播放响应（文字和语音）
+                        self.play_response(response_text, audio_base64 if has_audio else None)
+                        time.sleep(2)
+
+                    # 根据动作更新状态
+                    if action == "start_conversation":
+                        self.oled.show_text("Conversation", "Started!", "")
+                        time.sleep(1)
+                    elif action == "end_conversation":
+                        self.oled.show_text("Conversation", "Ended", "")
+                        time.sleep(1)
+
+                # 定期检查动作识别（如果有摄像头）
                 current_time = time.time()
-                if current_time - self.last_gesture_check > GESTURE_CHECK_INTERVAL:
+                if self.camera and current_time - self.last_gesture_check > GESTURE_CHECK_INTERVAL:
                     self.last_gesture_check = current_time
-                    
-                    # 检查对话状态
-                    self.check_conversation_status()
-                    
-                    # 检查动作（如果有摄像头）
-                    if self.camera:
-                        gesture = self.capture_and_send_gesture()
-                        if gesture:
-                            print("Gesture detected:", gesture)
-                            self.oled.show_text("Gesture:", gesture, "")
-                            time.sleep(1)
-                
-                # 如果对话激活，录音并发送
-                if self.conversation_active:
-                    self.oled.show_text("Listening...", "", "")
-                    
-                    # 录音
-                    pcm = self.record_audio(RECORD_SECONDS)
-                    
-                    self.oled.show_text("Processing...", "", "")
-                    
-                    # 发送到服务器
-                    result = self.send_audio_to_server(pcm)
-                    
-                    if result:
-                        user_text = result.get("user", "")
-                        bot_text = result.get("bot", "")
-                        action = result.get("action", "")
-                        
-                        if user_text:
-                            print("You:", user_text)
-                        
-                        if bot_text:
-                            self.play_response(bot_text)
-                            time.sleep(3)
-                        
-                        if action == "end_conversation":
-                            self.conversation_active = False
-                            self.oled.show_text("Conversation", "Ended", "")
-                            time.sleep(2)
-                    
-                    time.sleep(0.5)
-                
-                else:
-                    # 对话未激活，显示待机
-                    self.oled.show_text("Smart Plant", "Standby", "Say Hello!")
-                    time.sleep(2)
-        
+                    gesture = self.capture_and_send_gesture()
+                    if gesture:
+                        print("Gesture detected:", gesture)
+                        self.oled.show_text("Gesture:", gesture, "")
+                        time.sleep(1)
+
+                # 短暂延迟，避免过于频繁
+                time.sleep(0.3)
+
         except KeyboardInterrupt:
             print("\nStopping...")
-        
+
         finally:
             self.cleanup()
     
