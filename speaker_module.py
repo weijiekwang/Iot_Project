@@ -11,6 +11,7 @@ class SpeakerPlayer:
         self.ws  = Pin(AMP_LRCL_PIN)
         self.sd  = Pin(AMP_DIN_PIN)
 
+        # 使用 I2S(1) 做 TX
         self.i2s = I2S(
             1,
             sck=self.bck,
@@ -24,15 +25,12 @@ class SpeakerPlayer:
         )
         print("Speaker I2S init OK")
 
-    def play_pcm(self, pcm_bytes):
-        """播放一段 16-bit mono PCM 数据"""
-        if not pcm_bytes:
+    def play_chunk(self, chunk_bytes: bytes):
+        """播放一小块 PCM 数据（16kHz,16bit,mono）。"""
+        if not chunk_bytes:
             return
-        view = memoryview(pcm_bytes)
-        # 分块写入，避免一次写太大
-        chunk = 1024
-        for i in range(0, len(view), chunk):
-            self.i2s.write(view[i:i+chunk])
+        self.i2s.write(chunk_bytes)
 
     def deinit(self):
         self.i2s.deinit()
+        print("Speaker I2S deinit.")
