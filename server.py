@@ -1,344 +1,443 @@
 # server.py
-# ESP32 STT/TTS + 简单 Web 仪表盘（假数据）
+# 功能：
+#   1) Web 页面（/）：显示一个“智能盆栽监控系统”的假数据仪表盘
+#   2) /api/stt ：接收 ESP32 发送的原始 PCM，做语音识别，返回 {"text": "..."}
+#   3) /api/tts_test ：在 PC 上把一句话变成 16kHz 16bit mono PCM，给 ESP32 播放
 
 from flask import Flask, request, jsonify, Response
 import io
 import wave
-import math
-import random
-import time
-
 import speech_recognition as sr
+
+import pyttsx3
+import audioop
+import tempfile
+import os
 
 app = Flask(__name__)
 
-# =======================
-# 1. 首页 HTML（内嵌字符串）
-# =======================
+# ========= 简单网页（假数据） =========
 
 INDEX_HTML = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <title>智能盆栽监控系统</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: linear-gradient(135deg,#4b6cb7,#182848);
-      min-height: 100vh;
-      color: #fff;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 40px auto;
-      padding: 20px;
-    }
-    .card {
-      background: rgba(255,255,255,0.1);
-      border-radius: 16px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-      padding: 24px;
-      backdrop-filter: blur(12px);
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 24px;
-    }
-    .header h1 {
-      font-size: 32px;
-      margin-bottom: 6px;
-    }
-    .header p {
-      opacity: 0.8;
-      font-size: 14px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: 2fr 1fr;
-      gap: 24px;
-    }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .stat-card {
-      background: linear-gradient(135deg,#6a11cb,#2575fc);
-      border-radius: 14px;
-      padding: 18px;
-      text-align: center;
-    }
-    .stat-label {
-      font-size: 14px;
-      opacity: 0.85;
-    }
-    .stat-value {
-      font-size: 28px;
-      font-weight: bold;
-      margin-top: 8px;
-    }
-    .section-title {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .section-title span {
-      font-size: 20px;
-    }
-    canvas {
-      width: 100%;
-      height: 260px;
-      background: rgba(0,0,0,0.05);
-      border-radius: 12px;
-    }
-    .btn {
-      display: block;
-      width: 100%;
-      border: none;
-      border-radius: 999px;
-      padding: 12px 16px;
-      font-size: 15px;
-      margin-bottom: 14px;
-      cursor: pointer;
-      color: #fff;
-    }
-    .btn-green { background: #16a34a; }
-    .btn-red   { background: #dc2626; }
-    .btn-blue  { background: #2563eb; }
-    .status-dot {
-      display: inline-block;
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      margin-right: 6px;
-      background: #ef4444;
-    }
-    .status-dot.on { background: #22c55e; }
-    .small {
-      font-size: 12px;
-      opacity: 0.7;
-      margin-top: 6px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <title>智能盆栽监控系统</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #5b8def, #8a6de9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 32px;
+            color: #fff;
+        }
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background: rgba(255,255,255,0.12);
+            border-radius: 24px;
+            box-shadow: 0 20px 45px rgba(0,0,0,0.25);
+            backdrop-filter: blur(18px);
+            padding: 24px 32px 32px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .title {
+            font-size: 28px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .title span.icon {
+            font-size: 30px;
+        }
+        .subtitle {
+            font-size: 14px;
+            opacity: 0.85;
+        }
+        .chips {
+            display: flex;
+            gap: 8px;
+            font-size: 13px;
+        }
+        .chip {
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.12);
+        }
+        .main {
+            display: grid;
+            grid-template-columns: 2.1fr 1fr;
+            gap: 20px;
+        }
+        .card {
+            background: rgba(15,20,40,0.85);
+            border-radius: 18px;
+            padding: 16px 20px 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+        }
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card h2 span.icon {
+            font-size: 20px;
+        }
+        .divider {
+            height: 2px;
+            background: linear-gradient(90deg, #6f8cff, #b46dff);
+            margin: 6px 0 14px;
+            opacity: 0.85;
+        }
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .stat-box {
+            background: linear-gradient(135deg, #5566e8, #8b63e8);
+            border-radius: 16px;
+            padding: 12px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .stat-label {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+        .fake-chart {
+            margin-top: 10px;
+            padding: 12px 10px 6px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 14px;
+        }
+        .chart-title {
+            font-size: 13px;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .chart-title span.legend {
+            width: 10px;
+            height: 10px;
+            border-radius: 6px;
+            background: #9db5ff;
+        }
+        .chart-bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 6px;
+            height: 120px;
+        }
+        .bar {
+            flex: 1;
+            border-radius: 6px 6px 0 0;
+            background: linear-gradient(180deg, #9db5ff, #5c73ff);
+            opacity: 0.8;
+        }
+        .bar:nth-child(2n) { height: 55%; }
+        .bar:nth-child(3n) { height: 80%; }
+        .bar:nth-child(4n) { height: 35%; }
+        .bar:nth-child(5n) { height: 90%; }
+        .bar:nth-child(7) { height: 65%; }
+        .bar:nth-child(9) { height: 75%; }
+        .bar:nth-child(10) { height: 60%; }
+        .y-axis {
+            font-size: 10px;
+            opacity: 0.7;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+        }
+        .control-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 6px;
+        }
+        .btn {
+            width: 100%;
+            border-radius: 999px;
+            border: none;
+            padding: 10px 14px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: #fff;
+        }
+        .btn span.status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ff5d70;
+            box-shadow: 0 0 0 3px rgba(255,93,112,0.35);
+        }
+        .btn-green {
+            background: linear-gradient(135deg, #1bbf72, #10a95b);
+        }
+        .btn-red {
+            background: linear-gradient(135deg, #ff5d70, #eb4455);
+        }
+        .btn-blue {
+            background: linear-gradient(135deg, #4285f4, #597cf5);
+        }
+        .btn-ghost {
+            background: rgba(255,255,255,0.08);
+        }
+        .hint {
+            font-size: 11px;
+            opacity: 0.8;
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+        @media (max-width: 900px) {
+            .main { grid-template-columns: 1fr; }
+        }
+    </style>
 </head>
 <body>
-  <div class="container">
-    <div class="card">
-      <div class="header">
-        <h1>🌱 智能盆栽监控系统</h1>
-        <p>实时监控 | 语音对话 | 动作识别（当前数据为示例假数据，ESP32 接口独立运行）</p>
-      </div>
-
-      <div class="grid">
-        <!-- 左侧：湿度监控 -->
+<div class="container">
+    <div class="header">
         <div>
-          <div class="section-title">
-            <span>📊</span>湿度监控（过去 24 小时）
-          </div>
-          <div class="stats">
-            <div class="stat-card">
-              <div class="stat-label">当前湿度(%)</div>
-              <div class="stat-value" id="cur-humidity">66</div>
+            <div class="title">
+                <span class="icon">🌱</span>
+                <span>智能盆栽监控系统</span>
             </div>
-            <div class="stat-card">
-              <div class="stat-label">平均湿度(%)</div>
-              <div class="stat-value" id="avg-humidity">70.8</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">数据点数</div>
-              <div class="stat-value" id="data-count">21</div>
-            </div>
-          </div>
-          <canvas id="humidity-chart"></canvas>
-          <div class="small">图表数据为随机示例，用于 UI 演示，不代表真实传感器读数。</div>
+            <div class="subtitle">实时湿度监控 · 语音对话 · 动作识别（当前数据为示例假数据）</div>
         </div>
-
-        <!-- 右侧：对话控制 -->
-        <div>
-          <div class="section-title">
-            <span>💬</span>对话控制
-          </div>
-          <button class="btn btn-red" id="status-btn">
-            <span class="status-dot" id="status-dot"></span>
-            对话已关闭
-          </button>
-          <button class="btn btn-green" onclick="fakeOpenDialog()">
-            🟢 开启对话（示例）
-          </button>
-          <button class="btn btn-red" onclick="fakeCloseDialog()">
-            🔴 关闭对话（示例）
-          </button>
-          <button class="btn btn-blue" onclick="reloadFakeData()">
-            🔄 刷新假数据
-          </button>
-          <div class="small">
-            ESP32 的麦克风 / 扬声器 / 摄像头通过独立接口 /api/stt 和 /api/tts_test 与本服务器通信，
-            与本页示例 UI 相互独立。
-          </div>
+        <div class="chips">
+            <div class="chip">实时监控</div>
+            <div class="chip">语音助手</div>
+            <div class="chip">ESP32</div>
         </div>
-      </div>
     </div>
-  </div>
 
-  <script>
-    const chartCanvas = document.getElementById('humidity-chart');
-    const ctx = chartCanvas.getContext('2d');
-    const W = chartCanvas.width;
-    const H = chartCanvas.height;
+    <div class="main">
+        <div class="card">
+            <h2><span class="icon">💧</span> 湿度监控（过去 24 小时）</h2>
+            <div class="divider"></div>
+            <div class="stats-row">
+                <div class="stat-box">
+                    <div class="stat-value">66</div>
+                    <div class="stat-label">当前湿度 (%)</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">70.8</div>
+                    <div class="stat-label">平均湿度 (%)</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">21</div>
+                    <div class="stat-label">数据点数</div>
+                </div>
+            </div>
+            <div class="fake-chart">
+                <div class="chart-title">
+                    <span class="legend"></span>
+                    <span>湿度变化趋势（示意图，仅前端假数据）</span>
+                </div>
+                <div class="chart-bars">
+                    <div class="bar" style="height:65%;"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                    <div class="bar"></div>
+                </div>
+                <div class="y-axis">
+                    <span>60%</span><span>70%</span><span>80%</span><span>90%</span><span>100%</span>
+                </div>
+            </div>
+        </div>
 
-    function drawFakeChart() {
-      ctx.clearRect(0, 0, W, H);
-      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      let points = [];
-      for (let i = 0; i < 24; i++) {
-        const x = (W - 40) * i / 23 + 20;
-        const base = 65 + 10 * Math.sin(i / 24 * Math.PI * 4);
-        const noise = (Math.random() - 0.5) * 8;
-        const y = H - (base + noise - 50) / 40 * (H - 40) - 20;
-        points.push({x, y});
-      }
-      for (let i = 0; i < points.length; i++) {
-        if (i === 0) ctx.moveTo(points[i].x, points[i].y);
-        else ctx.lineTo(points[i].x, points[i].y);
-      }
-      ctx.stroke();
-    }
-
-    function reloadFakeData() {
-      const cur = 60 + Math.round(Math.random() * 20);
-      const avg = 65 + Math.round(Math.random() * 15);
-      const cnt = 18 + Math.floor(Math.random() * 10);
-      document.getElementById('cur-humidity').innerText = cur;
-      document.getElementById('avg-humidity').innerText = avg;
-      document.getElementById('data-count').innerText = cnt;
-      drawFakeChart();
-    }
-
-    function fakeOpenDialog() {
-      document.getElementById('status-btn').innerText = '🟢 对话已开启';
-      document.getElementById('status-dot').classList.add('on');
-    }
-
-    function fakeCloseDialog() {
-      document.getElementById('status-btn').innerText = '❌ 对话已关闭';
-      document.getElementById('status-dot').classList.remove('on');
-    }
-
-    reloadFakeData();
-  </script>
+        <div class="card">
+            <h2><span class="icon">💬</span> 对话控制</h2>
+            <div class="divider"></div>
+            <div class="control-buttons">
+                <button class="btn btn-ghost">
+                    <span>当前状态：对话已关闭（示例）</span>
+                </button>
+                <button class="btn btn-green">
+                    <span class="status-dot" style="background:#2cff7c;"></span>
+                    <span>开启对话（示例按钮）</span>
+                </button>
+                <button class="btn btn-red">
+                    <span class="status-dot"></span>
+                    <span>关闭对话（示例按钮）</span>
+                </button>
+                <button class="btn btn-blue">
+                    <span>刷新数据（示例按钮）</span>
+                </button>
+            </div>
+            <p class="hint">
+                💡 提示：<br>
+                · ESP32 通过 <code>/api/stt</code> 上传麦克风音频，由服务器转文字；<br>
+                · ESP32 通过 <code>/api/tts_test</code> 获取合成语音 PCM，在本地扬声器播放。
+            </p>
+        </div>
+    </div>
+</div>
 </body>
 </html>
 """
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
-    """返回内嵌 HTML 页面（不依赖 templates/index.html）"""
-    return Response(INDEX_HTML, mimetype="text/html")
+    return INDEX_HTML
 
 
-# =======================
-# 2. STT：ESP32 音频上行 -> 文本
-# =======================
+# ========= STT：ESP32 -> 服务器（音频转文字） =========
 
 recognizer = sr.Recognizer()
 
-SAMPLE_RATE = 16000
-SAMPLE_WIDTH = 2      # 16-bit
-CHANNELS = 1
-
 @app.route("/api/stt", methods=["POST"])
-def api_stt():
+def stt_endpoint():
     """
-    接收 ESP32 发送的原始 PCM (16kHz, 16bit, mono)，
-    转成 WAV -> SpeechRecognition -> 文本。
-    返回 JSON: { success: bool, transcript: str | None, error?: str }
+    接收 ESP32 发送的原始 PCM（16kHz,16bit,mono），
+    转成 WAV 后，用 SpeechRecognition 调用 Google STT。
     """
+    raw = request.data
+    if not raw:
+        return jsonify({"error": "no audio data"}), 400
+
+    print(f"[STT] Received audio bytes: {len(raw)}")
+
+    # 把原始 PCM 包装成 WAV（内存中）
+    wav_buf = io.BytesIO()
+    with wave.open(wav_buf, "wb") as wf:
+        wf.setnchannels(1)        # 单声道
+        wf.setsampwidth(2)        # 16bit
+        wf.setframerate(16000)    # 16kHz
+        wf.writeframes(raw)
+
+    wav_buf.seek(0)
+
+    text = ""
     try:
-        raw = request.get_data()
-        print(f"[STT] received {len(raw)} bytes")
-
-        if not raw:
-            return jsonify({"success": False, "transcript": None,
-                            "error": "no audio data"}), 400
-
-        # 封装成 WAV 放到内存
-        buf = io.BytesIO()
-        with wave.open(buf, "wb") as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(SAMPLE_WIDTH)
-            wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(raw)
-        buf.seek(0)
-
-        with sr.AudioFile(buf) as source:
+        with sr.AudioFile(wav_buf) as source:
             audio = recognizer.record(source)
 
-        try:
-            text = recognizer.recognize_google(audio, language="en-US")
-        except sr.UnknownValueError:
-            text = ""
-        except Exception as e:
-            print("[STT] recognize error:", e)
-            return jsonify({"success": False, "transcript": None,
-                            "error": str(e)}), 500
+        # 现在用英文，如果想识别中文改成 language="zh-CN"
+        text = recognizer.recognize_google(audio, language="en-US")
+        print(f"[STT] {text}")
 
-        print("[STT] transcript:", text)
-        return jsonify({"success": True, "transcript": text})
-
+    except sr.UnknownValueError:
+        print("[STT] Speech was not understood.")
+        text = ""
+    except sr.RequestError as e:
+        print(f"[STT] API request failed: {e}")
+        return jsonify({"error": "stt_request_failed"}), 500
     except Exception as e:
-        print("[STT] fatal error:", e)
-        return jsonify({"success": False, "transcript": None,
-                        "error": str(e)}), 500
+        print(f"[STT] Unexpected error: {e}")
+        return jsonify({"error": "internal_error"}), 500
+
+    return jsonify({
+        "text": text,
+        "raw_bytes": len(raw)
+    })
 
 
-# =======================
-# 3. TTS：简单 beep 测试 Speaker
-# =======================
+# ========= TTS：服务器 -> ESP32（文字转语音 PCM） =========
 
-def generate_beep(duration_sec=2.0, freq=440.0):
+REPLY_TEXT = "I love Columbia, test test test"
+
+def generate_tts_pcm(text: str) -> bytes:
     """
-    生成 16kHz / 16bit / mono 的正弦波，作为测试用“语音”。
+    用 pyttsx3 生成 text 的 WAV，再转成 16kHz 16bit mono PCM。
+    返回：纯 PCM bytes（不含 WAV 头）。
     """
-    n = int(SAMPLE_RATE * duration_sec)
-    pcm = bytearray()
-    for i in range(n):
-        v = 0.6 * math.sin(2 * math.pi * freq * i / SAMPLE_RATE)
-        s = int(v * 32767)
-        pcm += s.to_bytes(2, "little", signed=True)
-    return bytes(pcm)
+    engine = pyttsx3.init()
+    tmp_name = None
+
+    try:
+        # 1. 生成临时 WAV 文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp_name = tmp.name
+
+        engine.save_to_file(text, tmp_name)
+        engine.runAndWait()
+
+        # 2. 读取 WAV 内容
+        with wave.open(tmp_name, "rb") as wf:
+            n_channels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            framerate = wf.getframerate()
+            n_frames = wf.getnframes()
+            frames = wf.readframes(n_frames)
+
+        # 3. 转单声道
+        if n_channels != 1:
+            frames = audioop.tomono(frames, sampwidth, 1.0, 1.0)
+            n_channels = 1
+
+        # 4. 转 16bit
+        if sampwidth != 2:
+            frames = audioop.lin2lin(frames, sampwidth, 2)
+            sampwidth = 2
+
+        # 5. 重采样到 16000Hz
+        if framerate != 16000:
+            frames, _ = audioop.ratecv(
+                frames, sampwidth, n_channels,
+                framerate, 16000, None
+            )
+            framerate = 16000
+
+        print(f"[TTS] Generated PCM length={len(frames)} bytes")
+        return frames
+
+    finally:
+        if tmp_name and os.path.exists(tmp_name):
+            os.remove(tmp_name)
+
+
+print("[TTS] Pre-generating TTS PCM ...")
+TTS_PCM = generate_tts_pcm(REPLY_TEXT)
+print("[TTS] Ready.")
 
 
 @app.route("/api/tts_test", methods=["GET"])
-def api_tts_test():
+def tts_test():
     """
-    返回一段 beep 的 PCM，ESP32 直接 I2S 播放。
-    以后想换真正的 TTS，只要保持返回 16bit PCM 即可。
+    返回预生成好的 TTS PCM，类型为 application/octet-stream，
+    ESP32 端直接当成 16kHz 16bit mono PCM 播放即可。
     """
-    text = request.args.get("text", "I love Columbia, test test test")
-    print(f"[TTS] request text='{text}' (当前用 beep 代替真实语音)")
-    pcm = generate_beep(duration_sec=2.0, freq=660.0)
-    return Response(pcm, mimetype="application/octet-stream")
+    return Response(TTS_PCM, mimetype="application/octet-stream")
 
-
-# =======================
-# 4. 启动
-# =======================
 
 if __name__ == "__main__":
-    print("============================================================")
+    print("=" * 60)
     print("🌱 智能盆栽 Web 监控系统 + ESP32 STT/TTS Server")
-    print("============================================================")
+    print("=" * 60)
     print("本机访问:   http://localhost:8000")
     print("局域网访问: http://<你的笔记本IP>:8000")
     print("STT 接口:   POST /api/stt")
     print("TTS 测试:   GET  /api/tts_test")
-    print("============================================================")
-
+    print("=" * 60)
     app.run(host="0.0.0.0", port=8000, debug=True)

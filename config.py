@@ -6,7 +6,7 @@ WIFI_PASSWORD = ""                     # 如果这个 WiFi 不需要密码就留
 
 # ==== 服务器 ====
 SERVER_IP = "10.207.99.24"             # 你 server.py 终端里显示的那个 IP
-SERVER_PORT = 8080
+SERVER_PORT = 8000
 AUDIO_API_PATH = "/api/stt"
 DEVICE_ID = "esp32-test-01"
 
