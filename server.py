@@ -15,102 +15,187 @@ import audioop
 import tempfile
 import os
 
+import cv2
+import time
+import threading
+
+from gesture_recognition import GestureRecognizer
+from config import CAM_STREAM_URL, POE_API_KEY, POE_BOT_NAME
+
+# POE API 客户端
+import fastapi_poe as fp
+
 app = Flask(__name__)
+
+latest_gesture = None       # 最近一次识别到的手势字符串
+latest_gesture_time = 0.0   # 对应的时间戳
+gesture_lock = threading.Lock()
 
 # ========= 对话状态管理 =========
 class ConversationManager:
     def __init__(self):
         self.conversation_mode = False  # 对话模式标志
         self.last_response = ""  # 存储最新的回复文本
+        self.conversation_history = []  # 存储对话历史
+        self.poe_client = None  # POE API 客户端
+        self._init_poe_client()
+
+    def _init_poe_client(self):
+        """Initialize POE API client"""
+        try:
+            self.poe_client = fp.get_bot_response
+            print(f"[POE] POE API client initialized successfully, using model: {POE_BOT_NAME}")
+        except Exception as e:
+            print(f"[POE] POE API client initialization failed: {e}")
+            self.poe_client = None
 
     def is_active(self):
         """检查对话模式是否激活"""
         return self.conversation_mode
 
     def activate(self):
-        """激活对话模式"""
+        """Activate conversation mode"""
         self.conversation_mode = True
-        print("[对话] 对话模式已激活")
+        self.conversation_history = []  # Clear conversation history
+        print("[Conversation] Conversation mode activated")
 
     def deactivate(self):
-        """关闭对话模式"""
+        """Deactivate conversation mode"""
         self.conversation_mode = False
-        print("[对话] 对话模式已关闭")
+        self.conversation_history = []  # Clear conversation history
+        print("[Conversation] Conversation mode deactivated")
 
     def process_text(self, text):
-        """处理识别的文本，返回响应和动作"""
+        """Process recognized text and return response"""
         if not text:
-            print("[对话] 没有识别到文本")
+            print("[Conversation] No text recognized")
             return None, None
 
         text_lower = text.lower()
-        print(f"[对话] 处理文本: '{text_lower}' | 对话模式: {self.conversation_mode}")
+        print(f"[Conversation] Processing text: '{text_lower}' | Mode: {self.conversation_mode}")
 
-        # 检查是否是开启对话指令
+        # Check if it's a start conversation command
         if not self.conversation_mode:
-            # 严格匹配 "hello world" 或 "hello" 单独出现
+            # Strict match for "hello world" or "hello" alone
             if "hello world" in text_lower or text_lower.strip() == "hello":
                 self.activate()
                 response = "Hello! I'm your smart plant. How can I help you today?"
                 return response, "start_conversation"
             else:
-                # 非对话模式下，不回复
-                print("[对话] 非对话模式，忽略输入")
+                # Not in conversation mode, ignore input
+                print("[Conversation] Not in conversation mode, ignoring input")
                 return None, None
 
-        # 对话模式下处理
-        print("[对话] 对话模式已激活，处理用户输入")
+        # In conversation mode
+        print("[Conversation] Conversation mode active, processing user input")
 
-        # 检查是否是关闭对话指令
+        # Check if it's an end conversation command
         if "bye bye" in text_lower or "bye-bye" in text_lower or "goodbye" in text_lower or "good bye" in text_lower:
             response = "Have a good day! Goodbye!"
             self.deactivate()
             return response, "end_conversation"
 
-        # 生成对话响应
-        response = self.generate_response(text_lower)
-        print(f"[对话] 生成回复: '{response}'")
+        # Generate response using LLM
+        response = self.generate_response_with_llm(text)
+        print(f"[Conversation] Generated response: '{response}'")
         return response, "continue"
 
-    def generate_response(self, text):
-        """生成对话回复"""
-        # 简单的规则响应（按优先级从高到低匹配）
+    def generate_response_with_llm(self, text):
+        """Generate conversation response using POE API LLM"""
+        if not self.poe_client:
+            print("[LLM] POE client not initialized, using fallback response")
+            return "Sorry, I'm having trouble thinking right now. Please try again later."
 
-        # 优先匹配更具体的短语
-        if "how are you" in text:
-            return "I'm doing great! Thanks for asking. How about you?"
+        try:
+            # Add user message to history
+            self.conversation_history.append({
+                "role": "user",
+                "content": text
+            })
 
-        elif "what is your name" in text or "what's your name" in text or "your name" in text:
-            return "I'm your smart plant assistant. You can call me Planty!"
+            # Build full conversation context
+            system_prompt = "You are a friendly and helpful AI assistant. You can chat with users about any topic and answer their questions. Keep your responses concise and friendly (1-2 sentences). Do not use emojis in your responses."
 
-        elif "tell me a joke" in text or "tell a joke" in text:
-            return "Why did the plant go to therapy? Because it had too many deep roots!"
+            # Build message list
+            messages = [fp.ProtocolMessage(role="system", content=system_prompt)]
+            for msg in self.conversation_history:
+                messages.append(fp.ProtocolMessage(role=msg["role"], content=msg["content"]))
 
-        elif "joke" in text:
-            return "Why did the plant go to therapy? Because it had too many deep roots!"
+            print(f"[LLM] Sending request to POE API, model: {POE_BOT_NAME}")
 
-        elif "sing" in text or "song" in text:
-            return "I'm a plant, not a singer! But I appreciate good music!"
+            # Call POE API - need to handle async generator properly
+            import asyncio
 
-        elif "weather" in text:
-            return "I'm a plant, so I love sunny weather! But I can't check the actual weather for you yet."
+            async def get_response():
+                response_text = ""
+                chunk_count = 0
+                try:
+                    print("[LLM] Starting to iterate through POE API response stream...")
+                    async for partial in self.poe_client(
+                        messages=messages,
+                        bot_name=POE_BOT_NAME,
+                        api_key=POE_API_KEY
+                    ):
+                        chunk_count += 1
+                        print(f"[LLM] Received chunk #{chunk_count}, type: {type(partial).__name__}")
 
-        elif "water" in text:
-            return "Remember to water your plants regularly! But not too much - we don't like soggy roots!"
+                        # Collect full text from streaming response
+                        if isinstance(partial, fp.PartialResponse):
+                            # POE API streaming: accumulate all text chunks
+                            if partial.text:
+                                response_text += partial.text
+                            # Safe print that handles emojis and special characters
+                            preview = partial.text[:100].encode('ascii', 'replace').decode('ascii') if partial.text else ""
+                            print(f"[LLM] PartialResponse text length: {len(partial.text)}, content preview: '{preview}'")
+                        elif isinstance(partial, fp.MetaResponse):
+                            print(f"[LLM] MetaResponse received (end of stream)")
+                        else:
+                            print(f"[LLM] Unknown response type: {type(partial)}")
 
-        elif "thank you" in text or "thanks" in text or "thank" in text:
-            return "You're welcome! Happy to help!"
+                    print(f"[LLM] Stream ended. Total chunks: {chunk_count}, Final response length: {len(response_text)}")
+                except Exception as e:
+                    print(f"[LLM] Error in async response: {e}")
+                    import traceback
+                    traceback.print_exc()
+                return response_text if response_text else None
 
-        elif "help" in text:
-            return "I can chat with you! Try asking me questions or just say bye bye when you're done."
+            # Run async function in sync context
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-        # 问候语（在对话模式下）
-        elif "hello" in text or "hi there" in text or "hi" in text:
-            return "Hello there! How can I assist you?"
+            response_text = loop.run_until_complete(get_response())
 
-        else:
-            # 默认回复
-            return "I heard you! That's interesting. Tell me more!"
+            # Check if we got a valid response
+            if not response_text:
+                print("[LLM] Warning: Empty response from POE API")
+                # Remove the user message we just added since we didn't get a response
+                self.conversation_history.pop()
+                return "Sorry, I didn't get that. Could you please repeat?"
+
+            # Add bot response to history (POE API uses "bot" not "assistant")
+            self.conversation_history.append({
+                "role": "bot",
+                "content": response_text
+            })
+
+            # Limit history length, keep only last 10 rounds
+            if len(self.conversation_history) > 20:
+                self.conversation_history = self.conversation_history[-20:]
+
+            # Safe print that handles emojis and special characters
+            safe_text = response_text.encode('ascii', 'replace').decode('ascii')
+            print(f"[LLM] Received response: {safe_text}")
+            return response_text
+
+        except Exception as e:
+            print(f"[LLM] POE API call failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return fallback response on failure
+            return "Sorry, I'm having trouble thinking right now. Please try again later."
 
 # 创建全局对话管理器
 conversation_manager = ConversationManager()
@@ -178,6 +263,37 @@ INDEX_HTML = """
             display: grid;
             grid-template-columns: 2.1fr 1fr;
             gap: 20px;
+        }
+        .gesture-display {
+            background: rgba(255,255,255,0.08);
+            border-radius: 14px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .gesture-label {
+            font-size: 13px;
+            opacity: 0.75;
+            margin-bottom: 8px;
+        }
+        .gesture-value {
+            font-size: 42px;
+            font-weight: 700;
+            color: #9db5ff;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            letter-spacing: 1px;
+        }
+        .gesture-value.no-gesture {
+            font-size: 20px;
+            opacity: 0.5;
+        }
+        .gesture-time {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 8px;
         }
         .card {
             background: rgba(15,20,40,0.85);
@@ -303,6 +419,9 @@ INDEX_HTML = """
         .btn-blue {
             background: linear-gradient(135deg, #4285f4, #597cf5);
         }
+        .btn-amber {
+            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+        }
         .btn-ghost {
             background: rgba(255,255,255,0.08);
         }
@@ -376,6 +495,16 @@ INDEX_HTML = """
         </div>
 
         <div class="card">
+            <h2><span class="icon">👋</span> 手势识别</h2>
+            <div class="divider"></div>
+            <div class="gesture-display">
+                <div class="gesture-label">当前识别手势</div>
+                <div class="gesture-value no-gesture" id="gestureValue">等待识别...</div>
+                <div class="gesture-time" id="gestureTime">-</div>
+            </div>
+        </div>
+
+        <div class="card">
             <h2><span class="icon">💬</span> 对话控制</h2>
             <div class="divider"></div>
             <div class="control-buttons">
@@ -396,6 +525,9 @@ INDEX_HTML = """
                 <button class="btn btn-green">
                     <span>💧 浇水（示例按钮）</span>
                 </button>
+                <button class="btn btn-amber">
+                    <span>????????</span>
+                </button>
             </div>
             <p class="hint">
                 💡 提示：<br>
@@ -405,9 +537,145 @@ INDEX_HTML = """
         </div>
     </div>
 </div>
+
+<script>
+    // 定时获取手势识别结果
+    function updateGesture() {
+        fetch('/api/gesture_status')
+            .then(response => response.json())
+            .then(data => {
+                const gestureValue = document.getElementById('gestureValue');
+                const gestureTime = document.getElementById('gestureTime');
+
+                if (data.gesture) {
+                    // 有手势识别结果
+                    gestureValue.textContent = data.gesture;
+                    gestureValue.classList.remove('no-gesture');
+
+                    // 显示时间
+                    const date = new Date(data.timestamp * 1000);
+                    const timeStr = date.toLocaleTimeString('zh-CN');
+                    gestureTime.textContent = '识别时间: ' + timeStr;
+                } else {
+                    // 没有手势
+                    gestureValue.textContent = '等待识别...';
+                    gestureValue.classList.add('no-gesture');
+                    gestureTime.textContent = '-';
+                }
+            })
+            .catch(error => {
+                console.error('获取手势失败:', error);
+            });
+    }
+
+    // 每500毫秒更新一次
+    setInterval(updateGesture, 500);
+
+    // 页面加载时立即更新一次
+    updateGesture();
+</script>
 </body>
 </html>
 """
+# ================== ESP32-CAM 手势识别后台线程（带监看） ==================
+
+latest_gesture = None       # 最近一次识别到的手势
+latest_gesture_time = 0.0   # 时间戳
+gesture_lock = threading.Lock()
+
+
+def gesture_worker():
+    """
+    后台线程：从 ESP32-CAM 拉视频流，持续做手势识别。
+    同时在本机弹出一个预览窗口（按 q 关闭预览窗口，但线程继续跑）。
+    出错时会自动重连。
+    """
+    global latest_gesture, latest_gesture_time
+
+    print("[Gesture] Using stream URL:", CAM_STREAM_URL)
+
+    cap = None
+    fail_count = 0
+
+    # Preview window enabled (press q to close window, but gesture recognition continues)
+    preview_enabled = True
+
+    # Create one recognizer instance for reuse
+    recog = GestureRecognizer()
+
+    while True:
+        # If not opened or broken, try to reconnect
+        if cap is None or not cap.isOpened():
+            try:
+                print("[Gesture] Trying to open ESP32-CAM video stream...")
+                cap = cv2.VideoCapture(CAM_STREAM_URL)
+                if not cap.isOpened():
+                    print("[Gesture] Failed to open, retrying in 2 seconds")
+                    time.sleep(2.0)
+                    continue
+                print("[Gesture] Video stream opened successfully, starting background gesture recognition...")
+                fail_count = 0
+            except Exception as e:
+                print("[Gesture] Exception opening stream:", e)
+                time.sleep(2.0)
+                continue
+
+        # Read frame normally
+        ret, frame = cap.read()
+        if not ret:
+            fail_count += 1
+            print(f"[Gesture] Failed to read frame (consecutive failures: {fail_count}), continuing")
+
+            # If too many consecutive failures, reconnect
+            if fail_count >= 20:
+                print("[Gesture] Too many consecutive failures, releasing and reconnecting video stream")
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+                cap = None
+                fail_count = 0
+                time.sleep(1.0)
+            else:
+                time.sleep(0.1)
+            continue
+
+        # Successfully read frame, reset failure count
+        fail_count = 0
+
+        # Optional: mirror
+        frame = cv2.flip(frame, 1)
+
+        try:
+            processed, gesture = recog.process_frame(frame)
+        except Exception as e:
+            print("[Gesture] Exception processing frame:", e)
+            time.sleep(0.05)
+            continue
+
+        # Preview display
+        if preview_enabled:
+            try:
+                cv2.imshow("ESP32-CAM Gesture Preview", processed)
+                # Press q to close preview window (window only, gesture recognition continues)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    print("[Gesture] Preview window closed (gesture recognition still running in background)")
+                    cv2.destroyWindow("ESP32-CAM Gesture Preview")
+                    preview_enabled = False
+            except Exception as e:
+                print("[Gesture] Preview window exception:", e)
+                preview_enabled = False
+
+        # Write gesture result to global variable
+        if gesture:
+            with gesture_lock:
+                latest_gesture = gesture
+                latest_gesture_time = time.time()
+            print("[Gesture] Detected gesture:", gesture)
+
+        # Control CPU usage
+        time.sleep(0.02)
+
 
 @app.route("/", methods=["GET"])
 def index():
@@ -481,19 +749,19 @@ def stt_endpoint():
         traceback.print_exc()
         return jsonify({"error": "internal_error"}), 500
 
-    # 处理对话逻辑
-    print(f"[STT] 开始处理对话，识别文本: '{text}'")
+    # Process conversation logic
+    print(f"[STT] Processing conversation, recognized text: '{text}'")
     response_text, action = conversation_manager.process_text(text)
 
-    # 如果有回复，将回复文本存储以便后续TTS请求使用
+    # If there's a response, store it for TTS requests
     if response_text:
         print(f"[BOT] Response: {response_text}")
-        # 存储最新的回复文本，供/api/tts接口使用
+        # Store latest response for /api/tts endpoint
         conversation_manager.last_response = response_text
     else:
         print("[BOT] No response generated")
 
-    # 返回结果（不包含音频数据，避免ESP32内存问题）
+    # Return result (no audio data to avoid ESP32 memory issues)
     result = {
         "text": text,
         "response": response_text if response_text else "",
@@ -502,13 +770,14 @@ def stt_endpoint():
         "has_audio": response_text is not None and response_text != ""
     }
 
-    print(f"[API] 返回结果: text='{text}', response='{response_text}', action='{action}', conversation_active={conversation_manager.is_active()}")
+    print(f"[API] Returning result: text='{text}', response='{response_text}', action='{action}', conversation_active={conversation_manager.is_active()}")
     return jsonify(result)
 
 
 # ========= TTS：服务器 -> ESP32（文字转语音 PCM） =========
 
-REPLY_TEXT = "I love Columbia, test test test"
+# HARDCODED REPLY - COMMENTED OUT (now using LLM responses)
+# REPLY_TEXT = "I love Columbia, test test test"
 
 def generate_tts_pcm(text: str) -> bytes:
     """
@@ -560,9 +829,12 @@ def generate_tts_pcm(text: str) -> bytes:
             os.remove(tmp_name)
 
 
-print("[TTS] Pre-generating TTS PCM ...")
-TTS_PCM = generate_tts_pcm(REPLY_TEXT)
-print("[TTS] Ready.")
+# PRE-GENERATED TTS - COMMENTED OUT (now dynamically generating from LLM responses)
+# print("[TTS] Pre-generating TTS PCM ...")
+# TTS_PCM = generate_tts_pcm(REPLY_TEXT)
+# print("[TTS] Ready.")
+
+print("[TTS] TTS engine ready (will generate dynamically from LLM responses)")
 
 
 @app.route("/api/tts", methods=["GET"])
@@ -595,19 +867,59 @@ def tts_endpoint():
 @app.route("/api/tts_test", methods=["GET"])
 def tts_test():
     """
-    返回预生成好的 TTS PCM，类型为 application/octet-stream，
-    ESP32 端直接当成 16kHz 16bit mono PCM 播放即可。
+    Test endpoint - generates a simple test TTS audio.
+    ESP32 can play it directly as 16kHz 16bit mono PCM.
     """
-    return Response(TTS_PCM, mimetype="application/octet-stream")
+    # Generate test audio on-the-fly instead of using pre-generated
+    test_text = "TTS test successful. System is ready."
+    try:
+        tts_pcm = generate_tts_pcm(test_text)
+        return Response(tts_pcm, mimetype="application/octet-stream")
+    except Exception as e:
+        print(f"[TTS Test] Error: {e}")
+        return Response(b"", mimetype="application/octet-stream")
+
+@app.route("/api/gesture_status", methods=["GET"])
+def gesture_status():
+    """
+    返回最近一次识别到的手势。
+    如果超过 3 秒没有新的手势，则认为当前没有手势（返回 null）。
+    """
+    with gesture_lock:
+        g = latest_gesture
+        t = latest_gesture_time
+
+    now = time.time()
+    if t == 0 or (now - t) > 3.0:
+        # 超过 3 秒没更新，当作没有手势
+        g_out = None
+    else:
+        g_out = g
+
+    return jsonify({
+        "gesture": g_out,
+        "timestamp": t
+    })
+
 
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("🌱 智能盆栽 Web 监控系统 + ESP32 STT/TTS Server")
+    print("Smart Plant Web Monitoring System + ESP32 STT/TTS Server")
     print("=" * 60)
-    print("本机访问:   http://localhost:8000")
-    print("局域网访问: http://<你的笔记本IP>:8000")
-    print("STT 接口:   POST /api/stt")
-    print("TTS 测试:   GET  /api/tts_test")
+    print("Local access:   http://localhost:8000")
+    print("LAN access:     http://<your-laptop-IP>:8000")
+    print("STT endpoint:   POST /api/stt")
+    print("TTS test:       GET  /api/tts_test")
     print("=" * 60)
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    # Start background gesture recognition thread
+    t = threading.Thread(target=gesture_worker, daemon=True)
+    t.start()
+    # Start Flask server
+    app.run(host="0.0.0.0", port=8000, debug=False)
+
+# ================== ESP32-CAM 手势识别后台线程 ==================
+
+latest_gesture = None       # 最近一次识别到的手势
+latest_gesture_time = 0.0   # 时间戳
+gesture_lock = threading.Lock()

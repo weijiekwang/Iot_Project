@@ -22,7 +22,7 @@ from config import (
     DEVICE_ID,
 )
 
-RECORD_SECONDS = 3   # 每次录音3秒
+RECORD_SECONDS = 6   # 每次录音6秒，给用户足够时间说完整句子
 
 
 def record_and_stream(mic, seconds):

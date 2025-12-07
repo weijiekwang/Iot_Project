@@ -292,6 +292,9 @@
         .btn.btn-blue {
             background: linear-gradient(135deg, #2563eb, #4f46e5);
         }
+        .btn.btn-amber {
+            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+        }
         .btn.btn-gray {
             background: #9ca3af;
         }
@@ -437,6 +440,9 @@
                 </button>
                 <button class="btn btn-red" id="btn-stop">
                     <span class="icon">🔴</span> 关闭对话
+                </button>
+                <button class="btn btn-amber" id="btn-loosen">
+                    <span class="icon">🪴</span> 松土
                 </button>
                 <button class="btn btn-blue" id="btn-refresh">
                     <span class="icon">🔄</span> 刷新湿度数据
@@ -614,6 +620,11 @@
 
         document.getElementById('btn-refresh').addEventListener('click', () => {
             fetchHumidity();
+        });
+
+        // 松土按钮占位：无实际控制，仅提示
+        document.getElementById('btn-loosen').addEventListener('click', () => {
+            alert('松土功能暂未接入，按钮已就绪');
         });
 
         // 页面加载时初始化

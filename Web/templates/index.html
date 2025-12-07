@@ -121,6 +121,11 @@
             color: white;
         }
 
+        .btn-loosen {
+            background: #f59e0b;
+            color: white;
+        }
+
         .conversation-log {
             grid-column: 1 / -1;
         }
@@ -265,6 +270,9 @@
                     </button>
                     <button class="btn-stop" onclick="stopConversation()">
                         🔴 关闭对话
+                    </button>
+                    <button class="btn-loosen" onclick="loosenSoil()">
+                        🪴 松土
                     </button>
                     <button class="btn-refresh" onclick="refreshAll()">
                         🔄 刷新数据
@@ -500,6 +508,11 @@
             loadHumidityData();
             loadConversationStatus();
             loadConversationLog();
+        }
+
+        // 松土按钮占位，后续可接入实际操作
+        function loosenSoil() {
+            alert('松土功能暂未接入，按钮已就绪');
         }
 
         // 页面加载时初始化
