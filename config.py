@@ -32,4 +32,14 @@ CAM_STREAM_URL = "http://10.206.115.203:81/stream"
 
 # ==== POE API ====
 POE_API_KEY = "V-WboX2arfVDphhx1WjY8pB4KyqQeygpyZ-O2oIQ-1E"
-POE_BOT_NAME = "gpt-5-chat"  # 使用GPT-4o（无thinking，纯文本回复）
+POE_BOT_NAME = "gpt-5-chat"  # 使用GPT-5（无thinking，纯文本回复）
+
+# ==== Moisture Sensor ====
+MOISTURE_SENSOR_PIN = 39  # AOUT connected to GPIO39 (ADC1)
+MOISTURE_READ_INTERVAL = 5  # Read sensor every 5 seconds
+
+# ==== OLED Display (SSD1306) ====
+OLED_WIDTH = 192  # Horizontal rectangular OLED
+OLED_HEIGHT = 64
+OLED_SDA_PIN = 22  # I2C SDA
+OLED_SCL_PIN = 20  # I2C SCL

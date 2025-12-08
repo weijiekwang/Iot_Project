@@ -12,6 +12,8 @@ import ujson
 from wifi_manager import connect_wifi
 from mic_module import MicRecorder
 from speaker_module import SpeakerPlayer
+from moisture_sensor_module import MoistureSensor
+from oled_module import OledDisplay
 from config import (
     MIC_SAMPLE_RATE,
     MIC_BITS,
@@ -20,9 +22,64 @@ from config import (
     SERVER_PORT,
     AUDIO_API_PATH,
     DEVICE_ID,
+    MOISTURE_SENSOR_PIN,
+    MOISTURE_READ_INTERVAL,
 )
 
 RECORD_SECONDS = 6   # 每次录音6秒，给用户足够时间说完整句子
+
+
+def get_current_time_str():
+    """
+    Get current time as formatted string (HH:MM).
+    Uses local time from the RTC.
+    """
+    current = time.localtime()
+    hour = current[3]
+    minute = current[4]
+    return "{:02d}:{:02d}".format(hour, minute)
+
+
+def send_moisture_data(moisture_data):
+    """
+    Send moisture sensor data to server via HTTP POST.
+
+    Args:
+        moisture_data: Dictionary with moisture sensor readings
+    """
+    try:
+        # Build TCP connection
+        addr_info = socket.getaddrinfo(SERVER_IP, SERVER_PORT)[0][-1]
+        s = socket.socket()
+        s.settimeout(5.0)
+        s.connect(addr_info)
+
+        # Prepare JSON data
+        json_data = ujson.dumps(moisture_data)
+
+        # Build HTTP POST request
+        path = "/api/moisture"
+        headers = (
+            "POST {} HTTP/1.1\r\n"
+            "Host: {}:{}\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: {}\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        ).format(path, SERVER_IP, SERVER_PORT, len(json_data))
+
+        # Send request
+        s.write(headers.encode("utf-8"))
+        s.write(json_data.encode("utf-8"))
+
+        # Read response (optional, just to complete the request)
+        response = s.recv(256)
+
+        s.close()
+        print("[Moisture] Data sent to server")
+
+    except Exception as e:
+        print("[Moisture] Failed to send data to server:", e)
 
 
 def record_and_stream(mic, seconds):
@@ -186,13 +243,42 @@ def main():
     print("Say 'Bye Bye' to end conversation")
     print("=" * 50)
 
-    # 2. 初始化麦克风
+    # 2. 初始化麦克风、湿度传感器和OLED显示
     mic = MicRecorder()
+    moisture_sensor = MoistureSensor(MOISTURE_SENSOR_PIN)
+    oled = OledDisplay()
     conversation_active = False
+    last_moisture_read = time.time()
+
+    # 初始化显示
+    oled.show_text("Smart Plant", "Initializing...")
 
     try:
         # 持续监听循环
         while True:
+            # 定期读取湿度传感器并更新OLED显示
+            current_time = time.time()
+            if current_time - last_moisture_read >= MOISTURE_READ_INTERVAL:
+                moisture_data = moisture_sensor.read_all()
+                print("\n[Moisture Sensor]")
+                print("  Raw: {:4d} | Voltage: {:.2f}V | Moisture: {:.1f}% | Status: {}".format(
+                    moisture_data["raw"],
+                    moisture_data["voltage"],
+                    moisture_data["moisture_percent"],
+                    moisture_data["status"]
+                ))
+
+                # Update OLED display with current time and moisture
+                time_str = get_current_time_str()
+                moisture_str = "Moist: {:.1f}%".format(moisture_data["moisture_percent"])
+                oled.show_large_text(time_str, moisture_str)
+                print("[OLED] Updated display: {} | {}".format(time_str, moisture_str))
+
+                # Send moisture data to server
+                send_moisture_data(moisture_data)
+
+                last_moisture_read = current_time
+
             print("\n[Listening...]")
 
             # 录音并发送到服务器

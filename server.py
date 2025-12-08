@@ -31,6 +31,16 @@ latest_gesture = None       # 最近一次识别到的手势字符串
 latest_gesture_time = 0.0   # 对应的时间戳
 gesture_lock = threading.Lock()
 
+# ========= Moisture sensor data storage =========
+latest_moisture_data = {
+    "raw": 0,
+    "voltage": 0.0,
+    "moisture_percent": 0.0,
+    "status": "Unknown",
+    "timestamp": 0.0
+}
+moisture_lock = threading.Lock()
+
 # ========= 对话状态管理 =========
 class ConversationManager:
     def __init__(self):
@@ -459,16 +469,16 @@ INDEX_HTML = """
             <div class="divider"></div>
             <div class="stats-row">
                 <div class="stat-box">
-                    <div class="stat-value">66</div>
+                    <div class="stat-value" id="currentMoisture">--</div>
                     <div class="stat-label">当前湿度 (%)</div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-value">70.8</div>
-                    <div class="stat-label">平均湿度 (%)</div>
+                    <div class="stat-value" id="moistureStatus">--</div>
+                    <div class="stat-label">状态</div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-value">21</div>
-                    <div class="stat-label">数据点数</div>
+                    <div class="stat-value" id="moistureVoltage">--</div>
+                    <div class="stat-label">电压 (V)</div>
                 </div>
             </div>
             <div class="fake-chart">
@@ -568,11 +578,41 @@ INDEX_HTML = """
             });
     }
 
-    // 每500毫秒更新一次
+    // 定时获取湿度传感器数据
+    function updateMoisture() {
+        fetch('/api/moisture_status')
+            .then(response => response.json())
+            .then(data => {
+                const currentMoisture = document.getElementById('currentMoisture');
+                const moistureStatus = document.getElementById('moistureStatus');
+                const moistureVoltage = document.getElementById('moistureVoltage');
+
+                if (data.is_stale) {
+                    // 数据过期（超过30秒）
+                    currentMoisture.textContent = '--';
+                    moistureStatus.textContent = 'No Data';
+                    moistureVoltage.textContent = '--';
+                } else {
+                    // 显示实时数据
+                    currentMoisture.textContent = data.moisture_percent.toFixed(1);
+                    moistureStatus.textContent = data.status;
+                    moistureVoltage.textContent = data.voltage.toFixed(2);
+                }
+            })
+            .catch(error => {
+                console.error('获取湿度数据失败:', error);
+            });
+    }
+
+    // 每500毫秒更新一次手势
     setInterval(updateGesture, 500);
+
+    // 每2秒更新一次湿度数据
+    setInterval(updateMoisture, 2000);
 
     // 页面加载时立即更新一次
     updateGesture();
+    updateMoisture();
 </script>
 </body>
 </html>
@@ -899,6 +939,64 @@ def gesture_status():
     return jsonify({
         "gesture": g_out,
         "timestamp": t
+    })
+
+
+@app.route("/api/moisture", methods=["POST"])
+def moisture_update():
+    """
+    Receive moisture sensor data from ESP32.
+    Expected JSON format:
+    {
+        "raw": 2048,
+        "voltage": 1.65,
+        "moisture_percent": 50.0,
+        "status": "Medium"
+    }
+    """
+    global latest_moisture_data
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "no data"}), 400
+
+        with moisture_lock:
+            latest_moisture_data = {
+                "raw": data.get("raw", 0),
+                "voltage": data.get("voltage", 0.0),
+                "moisture_percent": data.get("moisture_percent", 0.0),
+                "status": data.get("status", "Unknown"),
+                "timestamp": time.time()
+            }
+
+        print(f"[Moisture] Updated: {latest_moisture_data['moisture_percent']:.1f}% ({latest_moisture_data['status']})")
+        return jsonify({"success": True})
+
+    except Exception as e:
+        print(f"[Moisture] Error updating data: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/moisture_status", methods=["GET"])
+def moisture_status():
+    """
+    Return current moisture sensor data.
+    If data is older than 30 seconds, mark as stale.
+    """
+    with moisture_lock:
+        data = latest_moisture_data.copy()
+
+    now = time.time()
+    is_stale = data["timestamp"] == 0 or (now - data["timestamp"]) > 30.0
+
+    return jsonify({
+        "raw": data["raw"],
+        "voltage": data["voltage"],
+        "moisture_percent": data["moisture_percent"],
+        "status": data["status"],
+        "timestamp": data["timestamp"],
+        "is_stale": is_stale
     })
 
 
