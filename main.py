@@ -1,9 +1,9 @@
 # main.py
-# 流程：
-# 1. WiFi 连接
-# 2. 持续监听模式：不断录音并发送到服务器
-# 3. 说 "hello world" 开启对话，说 "bye bye" 关闭对话
-# 4. 接收服务器的语音回复并通过扬声器播放
+# Process:
+# 1. WiFi connection
+# 2. Continuous listening mode: constantly record and send to server
+# 3. Say "hello world" to start conversation, say "bye bye" to end conversation
+# 4. Receive server's voice response and play through speaker
 
 import time
 import usocket as socket
@@ -30,7 +30,7 @@ from config import (
     NYC_UTC_OFFSET,
 )
 
-RECORD_SECONDS = 6   # 每次录音6秒，给用户足够时间说完整句子
+RECORD_SECONDS = 5   # Record for 5 seconds each time, giving users enough time to speak complete sentences
 
 
 def sync_time_from_ntp():
@@ -117,15 +117,15 @@ def send_moisture_data(moisture_data):
 
 def record_and_stream(mic, seconds):
     """
-    边录音边通过 HTTP POST 推给 /api/stt，
-    返回完整的对话响应数据。
+    Record audio and stream to /api/stt via HTTP POST,
+    return complete conversation response data.
     """
     bytes_per_sample = MIC_BITS // 8  # 16bit -> 2 bytes
     total_bytes = MIC_SAMPLE_RATE * bytes_per_sample * seconds
 
     print("Recording {} seconds...".format(seconds))
 
-    # 清空I2S缓冲区，确保麦克风状态正常
+    # Clear I2S buffer to ensure microphone is in good state
     try:
         dummy_buf = bytearray(512)
         for _ in range(5):
@@ -134,7 +134,7 @@ def record_and_stream(mic, seconds):
     except:
         pass
 
-    # 1. 建 TCP
+    # 1. Build TCP connection
     addr_info = socket.getaddrinfo(SERVER_IP, SERVER_PORT)[0][-1]
     s = socket.socket()
     s.connect(addr_info)
@@ -152,7 +152,7 @@ def record_and_stream(mic, seconds):
 
     s.write(headers.encode("utf-8"))
 
-    # 2. 边录边发
+    # 2. Record and send simultaneously
     bytes_sent = 0
     mv = memoryview(mic.buf)
 
@@ -170,7 +170,7 @@ def record_and_stream(mic, seconds):
 
     print("Audio sent, waiting for response...")
 
-    # 3. 读取 HTTP 响应
+    # 3. Read HTTP response
     response = b""
     while True:
         data = s.recv(512)
@@ -180,7 +180,7 @@ def record_and_stream(mic, seconds):
 
     s.close()
 
-    # 4. 解析 JSON
+    # 4. Parse JSON
     try:
         header, body = response.split(b"\r\n\r\n", 1)
     except ValueError:
@@ -193,24 +193,24 @@ def record_and_stream(mic, seconds):
         print("JSON parse error:", e)
         return None
 
-    # 返回完整的响应对象
+    # Return complete response object
     return obj
 
 
 def stream_tts_from_server():
     """
-    从服务器流式获取TTS音频并播放，避免大内存分配。
-    一边接收一边播放，不在ESP32上存储整段音频。
+    Stream TTS audio from server and play, avoiding large memory allocation.
+    Receive and play simultaneously, not storing entire audio on ESP32.
     """
     speaker = SpeakerPlayer()
 
     try:
-        # 建立TCP连接
+        # Build TCP connection
         addr_info = socket.getaddrinfo(SERVER_IP, SERVER_PORT)[0][-1]
         s = socket.socket()
         s.connect(addr_info)
 
-        # 发送HTTP GET请求
+        # Send HTTP GET request
         path = "/api/tts"
         req = (
             "GET {} HTTP/1.1\r\n"
@@ -222,7 +222,7 @@ def stream_tts_from_server():
         s.write(req.encode("utf-8"))
         print("Requesting TTS audio...")
 
-        # 读取HTTP响应头
+        # Read HTTP response headers
         buf = b""
         while b"\r\n\r\n" not in buf:
             data = s.recv(256)
@@ -232,18 +232,18 @@ def stream_tts_from_server():
             if len(buf) > 1024:
                 break
 
-        # 分离头和体
+        # Separate headers and body
         if b"\r\n\r\n" in buf:
             header, body = buf.split(b"\r\n\r\n", 1)
         else:
             header = buf
             body = b""
 
-        # body中已有第一块音频数据
+        # Body already has first chunk of audio data
         if body:
             speaker.play_chunk(body)
 
-        # 流式接收并播放剩余音频
+        # Stream receive and play remaining audio
         total_bytes = len(body)
         while True:
             data = s.recv(512)
@@ -260,22 +260,25 @@ def stream_tts_from_server():
 
     finally:
         speaker.deinit()
-        # 等待扬声器完全释放I2S总线
+        # Force garbage collection to free memory immediately after playback
+        import gc
+        gc.collect()
+        # Wait for speaker to fully release I2S bus
         time.sleep_ms(100)
 
 
 def check_and_play_gesture_tts():
     """
-    检查服务器是否有手势识别的TTS音频，如果有则播放。
+    Check if server has gesture recognition TTS audio, play if available.
     """
     try:
-        # 建立TCP连接
+        # Build TCP connection
         addr_info = socket.getaddrinfo(SERVER_IP, SERVER_PORT)[0][-1]
         s = socket.socket()
         s.settimeout(3.0)
         s.connect(addr_info)
 
-        # 发送HTTP GET请求
+        # Send HTTP GET request
         path = "/api/gesture_tts"
         req = (
             "GET {} HTTP/1.1\r\n"
@@ -286,7 +289,7 @@ def check_and_play_gesture_tts():
 
         s.write(req.encode("utf-8"))
 
-        # 读取HTTP响应头
+        # Read HTTP response headers
         buf = b""
         while b"\r\n\r\n" not in buf:
             data = s.recv(256)
@@ -296,31 +299,31 @@ def check_and_play_gesture_tts():
             if len(buf) > 1024:
                 break
 
-        # 分离头和体
+        # Separate headers and body
         if b"\r\n\r\n" in buf:
             header, body = buf.split(b"\r\n\r\n", 1)
         else:
             s.close()
             return False
 
-        # 检查是否有音频数据
+        # Check if there's audio data
         if not body:
-            # 读取剩余数据
+            # Read remaining data
             data = s.recv(512)
             if not data:
                 s.close()
                 return False
             body = data
 
-        # 如果有音频数据，播放
+        # If there's audio data, play it
         if body:
             print("[Gesture TTS] Received audio, playing...")
             speaker = SpeakerPlayer()
             try:
-                # 播放第一块
+                # Play first chunk
                 speaker.play_chunk(body)
 
-                # 流式接收并播放剩余音频
+                # Stream receive and play remaining audio
                 total_bytes = len(body)
                 while True:
                     data = s.recv(512)
@@ -332,6 +335,9 @@ def check_and_play_gesture_tts():
                 print("[Gesture TTS] Played {} bytes".format(total_bytes))
             finally:
                 speaker.deinit()
+                # Force garbage collection after gesture TTS playback
+                import gc
+                gc.collect()
                 time.sleep_ms(100)
 
             s.close()
@@ -346,7 +352,7 @@ def check_and_play_gesture_tts():
 
 
 def main():
-    # 1. WiFi
+    # 1. WiFi connection
     if not connect_wifi():
         print("WiFi connect failed, exit.")
         return
@@ -368,7 +374,7 @@ def main():
     print("Gesture Recognition: Hi, Wow, Good")
     print("=" * 50)
 
-    # 3. 初始化麦克风、湿度传感器和OLED显示
+    # 3. Initialize microphone, moisture sensor and OLED display
     mic = MicRecorder()
     moisture_sensor = MoistureSensor(MOISTURE_SENSOR_PIN)
     oled = OledDisplay()
@@ -376,13 +382,13 @@ def main():
     last_moisture_read = time.time()
     last_gesture_check = time.time()
 
-    # 初始化显示
+    # Initialize display
     oled.show_text("Smart Plant", "Initializing...")
 
     try:
-        # 持续监听循环
+        # Continuous listening loop
         while True:
-            # 定期读取湿度传感器并更新OLED显示
+            # Periodically read moisture sensor and update OLED display
             current_time = time.time()
             if current_time - last_moisture_read >= MOISTURE_READ_INTERVAL:
                 moisture_data = moisture_sensor.read_all()
@@ -405,17 +411,17 @@ def main():
 
                 last_moisture_read = current_time
 
-            # 定期检查手势识别TTS音频（每1秒检查一次）
+            # Periodically check for gesture recognition TTS audio (check every 1 second)
             if current_time - last_gesture_check >= 1.0:
                 if check_and_play_gesture_tts():
-                    # 播放完手势TTS后，重新初始化麦克风
+                    # After playing gesture TTS, reinitialize microphone
                     mic.reinit()
                     time.sleep_ms(50)
                 last_gesture_check = current_time
 
             print("\n[Listening...]")
 
-            # 录音并发送到服务器
+            # Record and send to server
             result = record_and_stream(mic, RECORD_SECONDS)
 
             if result:
@@ -434,32 +440,32 @@ def main():
                 print("  Conversation active: {}".format(conversation_active))
                 print("=" * 50)
 
-                # 显示识别的文字
+                # Display recognized text
                 if user_text:
                     print("\n[YOU]: {}".format(user_text))
 
-                # 显示机器人的回复
+                # Display bot's response
                 if response_text:
                     print("[BOT]: {}".format(response_text))
 
-                    # 流式播放语音回复（避免大内存分配）
+                    # Stream play voice response (avoid large memory allocation)
                     if has_audio:
-                        print("[播放语音回复...]")
+                        print("[Playing voice response...]")
                         stream_tts_from_server()
 
-                        # 重新初始化麦克风I2S（解决扬声器使用后的I2S冲突）
+                        # Reinitialize microphone I2S (resolve I2S conflict after speaker use)
                         mic.reinit()
                         time.sleep_ms(50)
                 else:
                     print("[BOT]: (no response)")
 
-                # 处理对话状态变化
+                # Handle conversation state changes
                 if action == "start_conversation":
                     print("\n*** Conversation Started! ***\n")
                 elif action == "end_conversation":
                     print("\n*** Conversation Ended ***\n")
 
-            # 短暂延迟
+            # Brief delay
             time.sleep(0.5)
 
     except KeyboardInterrupt:
