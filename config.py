@@ -28,7 +28,7 @@ AMP_SAMPLE_RATE = 16000
 AMP_BITS = 16
 
 # ==== ESP32 CAM ====
-CAM_STREAM_URL = "http://10.206.115.203:81/stream"
+CAM_STREAM_URL = "http://10.206.163.226:81/stream"
 
 # ==== POE API ====
 POE_API_KEY = "V-WboX2arfVDphhx1WjY8pB4KyqQeygpyZ-O2oIQ-1E"
@@ -43,3 +43,8 @@ OLED_WIDTH = 192  # Horizontal rectangular OLED
 OLED_HEIGHT = 64
 OLED_SDA_PIN = 22  # I2C SDA
 OLED_SCL_PIN = 20  # I2C SCL
+
+# ==== NTP Time Sync ====
+NTP_HOST = "pool.ntp.org"  # NTP server
+NYC_UTC_OFFSET = -5  # New York timezone offset (EST: UTC-5, EDT: UTC-4)
+# Note: For daylight saving time (March-November), change to -4

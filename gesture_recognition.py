@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -13,19 +14,19 @@ class GestureRecognizer:
             min_tracking_confidence=0.5
         )
         self.mp_drawing = mp.solutions.drawing_utils
-        
+
         # 用于跟踪头部位置历史（点头检测）
         self.nose_y_history = deque(maxlen=15)
-        
+
         # 用于跟踪头部位置历史（摇头检测）
         self.nose_x_history = deque(maxlen=15)
-        
+
         # 用于跟踪手部位置（用于挥手检测）
         self.wrist_history = deque(maxlen=10)
-        
+
         # 用于跟踪鼓掌动作
         self.clap_history = deque(maxlen=10)
-        
+
         # 冷却时间，避免重复识别
         self.last_gesture_time = 0
         self.gesture_cooldown = 2.0  # 2秒冷却时间
@@ -280,14 +281,14 @@ class GestureRecognizer:
                     gesture_detected = "Hi"
                     self.last_gesture_time = current_time
                     self.wrist_history.clear()
-                elif self.detect_nod(landmarks, h):
-                    gesture_detected = "Yes"
-                    self.last_gesture_time = current_time
-                    self.nose_y_history.clear()
-                elif self.detect_shake(landmarks, w):
-                    gesture_detected = "No"
-                    self.last_gesture_time = current_time
-                    self.nose_x_history.clear()
+                # elif self.detect_nod(landmarks, h):
+                #     gesture_detected = "Yes"
+                #     self.last_gesture_time = current_time
+                #     self.nose_y_history.clear()
+                # elif self.detect_shake(landmarks, w):
+                #     gesture_detected = "No"
+                #     self.last_gesture_time = current_time
+                #     self.nose_x_history.clear()
         
         return image, gesture_detected
     
@@ -306,8 +307,6 @@ class GestureRecognizer:
         print("  - 挥手打招呼 → 输出: Hi")
         print("  - 双手举高 → 输出: Wow")
         print("  - 鼓掌 → 输出: Good")
-        print("  - 点头 → 输出: Yes")
-        print("  - 摇头 → 输出: No")
         print("\n按 'q' 键或关闭窗口退出程序")
         print("=" * 50)
         
@@ -376,5 +375,15 @@ class GestureRecognizer:
 
 
 if __name__ == "__main__":
+    # 设置控制台编码为UTF-8
+    import sys
+    if sys.platform == 'win32':
+        try:
+            import codecs
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+            sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+        except:
+            pass
+
     recognizer = GestureRecognizer()
     recognizer.run()

@@ -8,6 +8,8 @@
 import time
 import usocket as socket
 import ujson
+import ntptime
+import machine
 
 from wifi_manager import connect_wifi
 from mic_module import MicRecorder
@@ -24,15 +26,46 @@ from config import (
     DEVICE_ID,
     MOISTURE_SENSOR_PIN,
     MOISTURE_READ_INTERVAL,
+    NTP_HOST,
+    NYC_UTC_OFFSET,
 )
 
 RECORD_SECONDS = 6   # 每次录音6秒，给用户足够时间说完整句子
 
 
+def sync_time_from_ntp():
+    """
+    Sync time from NTP server and set RTC to New York time.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        print("[NTP] Syncing time from NTP server...")
+        ntptime.settime()  # This sets UTC time
+        print("[NTP] UTC time synced successfully")
+
+        # Get current UTC time
+        utc_time = time.time()
+
+        # Apply NYC timezone offset (UTC-5 for EST, UTC-4 for EDT)
+        nyc_time = utc_time + (NYC_UTC_OFFSET * 3600)
+
+        # Set RTC to NYC time
+        tm = time.localtime(nyc_time)
+        machine.RTC().datetime((tm[0], tm[1], tm[2], tm[6], tm[3], tm[4], tm[5], 0))
+
+        print("[NTP] Time set to New York timezone (UTC{:+d})".format(NYC_UTC_OFFSET))
+        print("[NTP] Current NYC time: {:02d}:{:02d}:{:02d}".format(tm[3], tm[4], tm[5]))
+        return True
+
+    except Exception as e:
+        print("[NTP] Failed to sync time:", e)
+        return False
+
+
 def get_current_time_str():
     """
     Get current time as formatted string (HH:MM).
-    Uses local time from the RTC.
+    Uses local time from the RTC (already set to NYC time).
     """
     current = time.localtime()
     hour = current[3]
@@ -231,24 +264,117 @@ def stream_tts_from_server():
         time.sleep_ms(100)
 
 
+def check_and_play_gesture_tts():
+    """
+    检查服务器是否有手势识别的TTS音频，如果有则播放。
+    """
+    try:
+        # 建立TCP连接
+        addr_info = socket.getaddrinfo(SERVER_IP, SERVER_PORT)[0][-1]
+        s = socket.socket()
+        s.settimeout(3.0)
+        s.connect(addr_info)
+
+        # 发送HTTP GET请求
+        path = "/api/gesture_tts"
+        req = (
+            "GET {} HTTP/1.1\r\n"
+            "Host: {}:{}\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        ).format(path, SERVER_IP, SERVER_PORT)
+
+        s.write(req.encode("utf-8"))
+
+        # 读取HTTP响应头
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            data = s.recv(256)
+            if not data:
+                break
+            buf += data
+            if len(buf) > 1024:
+                break
+
+        # 分离头和体
+        if b"\r\n\r\n" in buf:
+            header, body = buf.split(b"\r\n\r\n", 1)
+        else:
+            s.close()
+            return False
+
+        # 检查是否有音频数据
+        if not body:
+            # 读取剩余数据
+            data = s.recv(512)
+            if not data:
+                s.close()
+                return False
+            body = data
+
+        # 如果有音频数据，播放
+        if body:
+            print("[Gesture TTS] Received audio, playing...")
+            speaker = SpeakerPlayer()
+            try:
+                # 播放第一块
+                speaker.play_chunk(body)
+
+                # 流式接收并播放剩余音频
+                total_bytes = len(body)
+                while True:
+                    data = s.recv(512)
+                    if not data:
+                        break
+                    speaker.play_chunk(data)
+                    total_bytes += len(data)
+
+                print("[Gesture TTS] Played {} bytes".format(total_bytes))
+            finally:
+                speaker.deinit()
+                time.sleep_ms(100)
+
+            s.close()
+            return True
+
+        s.close()
+        return False
+
+    except Exception as e:
+        print("[Gesture TTS] Error:", e)
+        return False
+
+
 def main():
     # 1. WiFi
     if not connect_wifi():
         print("WiFi connect failed, exit.")
         return
 
+    # 2. Sync time from NTP server
+    print("\n" + "=" * 50)
+    print("Syncing time with NTP server...")
     print("=" * 50)
+    if sync_time_from_ntp():
+        print("[OK] Time synchronized to New York timezone")
+    else:
+        print("[WARNING] Time sync failed, using default time")
+    time.sleep(1)
+
+    print("\n" + "=" * 50)
     print("Smart Plant - Continuous Listening Mode")
     print("Say 'Hello World' to start conversation")
     print("Say 'Bye Bye' to end conversation")
+    print("Gesture Recognition: Hi, Wow, Good")
     print("=" * 50)
 
-    # 2. 初始化麦克风、湿度传感器和OLED显示
+    # 3. 初始化麦克风、湿度传感器和OLED显示
     mic = MicRecorder()
     moisture_sensor = MoistureSensor(MOISTURE_SENSOR_PIN)
     oled = OledDisplay()
     conversation_active = False
     last_moisture_read = time.time()
+    last_gesture_check = time.time()
 
     # 初始化显示
     oled.show_text("Smart Plant", "Initializing...")
@@ -278,6 +404,14 @@ def main():
                 send_moisture_data(moisture_data)
 
                 last_moisture_read = current_time
+
+            # 定期检查手势识别TTS音频（每1秒检查一次）
+            if current_time - last_gesture_check >= 1.0:
+                if check_and_play_gesture_tts():
+                    # 播放完手势TTS后，重新初始化麦克风
+                    mic.reinit()
+                    time.sleep_ms(50)
+                last_gesture_check = current_time
 
             print("\n[Listening...]")
 
@@ -314,7 +448,6 @@ def main():
                         stream_tts_from_server()
 
                         # 重新初始化麦克风I2S（解决扬声器使用后的I2S冲突）
-                        print("[重新初始化麦克风...]")
                         mic.reinit()
                         time.sleep_ms(50)
                 else:

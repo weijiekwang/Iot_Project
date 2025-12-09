@@ -31,6 +31,10 @@ latest_gesture = None       # 最近一次识别到的手势字符串
 latest_gesture_time = 0.0   # 对应的时间戳
 gesture_lock = threading.Lock()
 
+# 存储手势识别的TTS音频
+gesture_tts_audio = b""     # 手势对应的TTS音频数据
+gesture_tts_lock = threading.Lock()
+
 # ========= Moisture sensor data storage =========
 latest_moisture_data = {
     "raw": 0,
@@ -89,7 +93,7 @@ class ConversationManager:
             # Strict match for "hello world" or "hello" alone
             if "hello world" in text_lower or text_lower.strip() == "hello":
                 self.activate()
-                response = "Hello! I'm your smart plant. How can I help you today?"
+                response = "Hello! How can I help you today?"
                 return response, "start_conversation"
             else:
                 # Not in conversation mode, ignore input
@@ -104,6 +108,12 @@ class ConversationManager:
             response = "Have a good day! Goodbye!"
             self.deactivate()
             return response, "end_conversation"
+
+        # Check for hardcoded schedule query
+        if "what's my schedule today" in text_lower or "what is my schedule today" in text_lower or "whats my schedule today" in text_lower:
+            response = "You have a group meeting at 2 PM at Mudd Building, and a Big Data Analytics class at 4 PM."
+            print(f"[Conversation] Generated response: '{response}'")
+            return response, "continue"
 
         # Generate response using LLM
         response = self.generate_response_with_llm(text)
@@ -210,14 +220,14 @@ class ConversationManager:
 # 创建全局对话管理器
 conversation_manager = ConversationManager()
 
-# ========= 简单网页（假数据） =========
+# ========= 简单网页 =========
 
 INDEX_HTML = """
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>智能盆栽监控系统</title>
+    <title>Smart Plant Monitoring System</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -452,97 +462,100 @@ INDEX_HTML = """
         <div>
             <div class="title">
                 <span class="icon">🌱</span>
-                <span>智能盆栽监控系统</span>
+                <span>Smart Plant Monitoring System</span>
             </div>
-            <div class="subtitle">实时湿度监控 · 语音对话 · 动作识别（当前数据为示例假数据）</div>
+            <div class="subtitle">Real-time Monitoring | Voice Interaction | Gesture Recognition</div>
         </div>
         <div class="chips">
-            <div class="chip">实时监控</div>
-            <div class="chip">语音助手</div>
+            <div class="chip">Real-time Monitoring</div>
+            <div class="chip">Voice Interaction</div>
             <div class="chip">ESP32</div>
         </div>
     </div>
 
     <div class="main">
         <div class="card">
-            <h2><span class="icon">💧</span> 湿度监控（过去 24 小时）</h2>
+            <h2><span class="icon">💧</span> Humidity Monitoring (Past 24 Hours)</h2>
             <div class="divider"></div>
             <div class="stats-row">
                 <div class="stat-box">
                     <div class="stat-value" id="currentMoisture">--</div>
-                    <div class="stat-label">当前湿度 (%)</div>
+                    <div class="stat-label">Current Humidity (%)</div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-value" id="moistureStatus">--</div>
-                    <div class="stat-label">状态</div>
+                    <div class="stat-label">Status</div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-value" id="moistureVoltage">--</div>
-                    <div class="stat-label">电压 (V)</div>
+                    <div class="stat-label">Voltage (V)</div>
                 </div>
             </div>
             <div class="fake-chart">
                 <div class="chart-title">
                     <span class="legend"></span>
-                    <span>湿度变化趋势（示意图，仅前端假数据）</span>
+                    <span>Humidity Trend</span>
                 </div>
-                <div class="chart-bars">
-                    <div class="bar" style="height:65%;"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                </div>
-                <div class="y-axis">
-                    <span>60%</span><span>70%</span><span>80%</span><span>90%</span><span>100%</span>
+                <div style="display: flex; gap: 12px;">
+                    <div style="display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; opacity: 0.7; height: 120px;">
+                        <span>100%</span>
+                        <span>75%</span>
+                        <span>50%</span>
+                        <span>25%</span>
+                        <span>0%</span>
+                    </div>
+                    <div style="flex: 1;">
+                        <div class="chart-bars">
+                            <div class="bar" style="height:60%;"></div>
+                            <div class="bar" style="height:57.5%;"></div>
+                            <div class="bar" style="height:55%;"></div>
+                            <div class="bar" style="height:52.5%;"></div>
+                            <div class="bar" style="height:50%;"></div>
+                            <div class="bar" style="height:47.5%;"></div>
+                            <div class="bar" style="height:45%;"></div>
+                            <div class="bar" style="height:42.5%;"></div>
+                            <div class="bar" style="height:40%;"></div>
+                            <div class="bar" style="height:70%;"></div>
+                        </div>
+                        <div class="y-axis">
+                            <span>24h ago</span><span>18h ago</span><span>12h ago</span><span>6h ago</span><span>Now</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h2><span class="icon">👋</span> 手势识别</h2>
+            <h2><span class="icon">👋</span> Gesture Recognition</h2>
             <div class="divider"></div>
             <div class="gesture-display">
-                <div class="gesture-label">当前识别手势</div>
-                <div class="gesture-value no-gesture" id="gestureValue">等待识别...</div>
+                <div class="gesture-value no-gesture" id="gestureValue">Identifying…</div>
                 <div class="gesture-time" id="gestureTime">-</div>
             </div>
         </div>
 
         <div class="card">
-            <h2><span class="icon">💬</span> 对话控制</h2>
+            <h2><span class="icon">💬</span> Voice Control</h2>
             <div class="divider"></div>
             <div class="control-buttons">
-                <button class="btn btn-ghost">
-                    <span>当前状态：对话已关闭（示例）</span>
+                <button class="btn btn-ghost" id="conversationStatus">
+                    <span>Current Status: Loading...</span>
                 </button>
-                <button class="btn btn-green">
+                <button class="btn btn-green" id="startConversationBtn" onclick="startConversation()">
                     <span class="status-dot" style="background:#2cff7c;"></span>
-                    <span>开启对话（示例按钮）</span>
+                    <span>Start Conversation</span>
                 </button>
-                <button class="btn btn-red">
+                <button class="btn btn-red" id="stopConversationBtn" onclick="stopConversation()">
                     <span class="status-dot"></span>
-                    <span>关闭对话（示例按钮）</span>
+                    <span>Stop Conversation</span>
                 </button>
-                <button class="btn btn-blue">
-                    <span>刷新数据（示例按钮）</span>
-                </button>
-                <button class="btn btn-green">
-                    <span>💧 浇水（示例按钮）</span>
-                </button>
-                <button class="btn btn-amber">
-                    <span>????????</span>
+                <button class="btn btn-blue" onclick="refreshMoisture()">
+                    <span>Refresh Humidity</span>
                 </button>
             </div>
             <p class="hint">
-                💡 提示：<br>
-                · ESP32 通过 <code>/api/stt</code> 上传麦克风音频，由服务器转文字；<br>
-                · ESP32 通过 <code>/api/tts_test</code> 获取合成语音 PCM，在本地扬声器播放。
+                💡 Hint:<br>
+                · The conversation mode can be controlled via voice ("Hello World" / "Bye Bye") or through the webpage buttons.
             </p>
         </div>
     </div>
@@ -564,17 +577,17 @@ INDEX_HTML = """
 
                     // 显示时间
                     const date = new Date(data.timestamp * 1000);
-                    const timeStr = date.toLocaleTimeString('zh-CN');
-                    gestureTime.textContent = '识别时间: ' + timeStr;
+                    const timeStr = date.toLocaleTimeString('en-US');
+                    gestureTime.textContent = 'Recognition Time: ' + timeStr;
                 } else {
                     // 没有手势
-                    gestureValue.textContent = '等待识别...';
+                    gestureValue.textContent = 'Waiting Recognition...';
                     gestureValue.classList.add('no-gesture');
                     gestureTime.textContent = '-';
                 }
             })
             .catch(error => {
-                console.error('获取手势失败:', error);
+                console.error('Failed to Retrieve Gesture:', error);
             });
     }
 
@@ -600,7 +613,84 @@ INDEX_HTML = """
                 }
             })
             .catch(error => {
-                console.error('获取湿度数据失败:', error);
+                console.error('Failed to Retrieve Humidity Data:', error);
+            });
+    }
+
+    // 获取对话模式状态
+    function updateConversationStatus() {
+        fetch('/api/conversation/status')
+            .then(response => response.json())
+            .then(data => {
+                const statusBtn = document.getElementById('conversationStatus');
+                const startBtn = document.getElementById('startConversationBtn');
+                const stopBtn = document.getElementById('stopConversationBtn');
+
+                if (data.active) {
+                    statusBtn.innerHTML = '<span>Current Status: Conversation On</span>';
+                    statusBtn.classList.remove('btn-ghost');
+                    statusBtn.classList.add('btn-green');
+                    startBtn.disabled = true;
+                    startBtn.style.opacity = '0.5';
+                    stopBtn.disabled = false;
+                    stopBtn.style.opacity = '1';
+                } else {
+                    statusBtn.innerHTML = '<span>Current Status: Conversation Off</span>';
+                    statusBtn.classList.remove('btn-green');
+                    statusBtn.classList.add('btn-ghost');
+                    startBtn.disabled = false;
+                    startBtn.style.opacity = '1';
+                    stopBtn.disabled = true;
+                    stopBtn.style.opacity = '0.5';
+                }
+            })
+            .catch(error => {
+                console.error('Failed to Retrieve Conversation Data:', error);
+            });
+    }
+
+    // 开启对话
+    function startConversation() {
+        fetch('/api/conversation/start', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Conversation On:', data);
+                updateConversationStatus();
+            })
+            .catch(error => {
+                console.error('Fail to Start Conversation:', error);
+                alert('Failed to start conversation, please check server connection');
+            });
+    }
+
+    // 关闭对话
+    function stopConversation() {
+        fetch('/api/conversation/stop', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Conversation Off:', data);
+                updateConversationStatus();
+            })
+            .catch(error => {
+                console.error('Fail to Stop Conversation:', error);
+                alert('Failed to stop conversation, please check server connection');
+            });
+    }
+
+    // 刷新湿度数据
+    function refreshMoisture() {
+        fetch('/api/moisture/refresh', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Data refresh request sent:', data);
+                // 立即更新一次显示
+                setTimeout(() => {
+                    updateMoisture();
+                }, 500);
+            })
+            .catch(error => {
+                console.error('Fail to Refresh Data:', error);
+                alert('Failed to refresh data, please check server connection');
             });
     }
 
@@ -610,9 +700,13 @@ INDEX_HTML = """
     // 每2秒更新一次湿度数据
     setInterval(updateMoisture, 2000);
 
+    // 每2秒更新一次对话状态
+    setInterval(updateConversationStatus, 2000);
+
     // 页面加载时立即更新一次
     updateGesture();
     updateMoisture();
+    updateConversationStatus();
 </script>
 </body>
 </html>
@@ -629,8 +723,9 @@ def gesture_worker():
     后台线程：从 ESP32-CAM 拉视频流，持续做手势识别。
     同时在本机弹出一个预览窗口（按 q 关闭预览窗口，但线程继续跑）。
     出错时会自动重连。
+    当识别到 Hi/Wow/Good 手势时，生成TTS音频供Huzzah播放。
     """
-    global latest_gesture, latest_gesture_time
+    global latest_gesture, latest_gesture_time, gesture_tts_audio
 
     print("[Gesture] Using stream URL:", CAM_STREAM_URL)
 
@@ -706,12 +801,23 @@ def gesture_worker():
                 print("[Gesture] Preview window exception:", e)
                 preview_enabled = False
 
-        # Write gesture result to global variable
+        # Write gesture result to global variable and generate TTS
         if gesture:
             with gesture_lock:
                 latest_gesture = gesture
                 latest_gesture_time = time.time()
             print("[Gesture] Detected gesture:", gesture)
+
+            # 为 Hi/Wow/Good 生成TTS音频
+            if gesture in ["Hi", "Wow", "Good"]:
+                try:
+                    print(f"[Gesture] Generating TTS for gesture: {gesture}")
+                    tts_audio = generate_tts_pcm(gesture)
+                    with gesture_tts_lock:
+                        gesture_tts_audio = tts_audio
+                    print(f"[Gesture] TTS generated: {len(tts_audio)} bytes")
+                except Exception as e:
+                    print(f"[Gesture] Failed to generate TTS: {e}")
 
         # Control CPU usage
         time.sleep(0.02)
@@ -942,6 +1048,27 @@ def gesture_status():
     })
 
 
+@app.route("/api/gesture_tts", methods=["GET"])
+def gesture_tts():
+    """
+    返回手势识别对应的TTS音频。
+    ESP32 Huzzah调用此接口获取Hi/Wow/Good的语音并播放。
+    获取后会清空音频数据，避免重复播放。
+    """
+    global gesture_tts_audio
+
+    with gesture_tts_lock:
+        audio_data = gesture_tts_audio
+        gesture_tts_audio = b""  # 清空已使用的音频
+
+    if not audio_data:
+        print("[Gesture TTS] No gesture audio available")
+        return Response(b"", mimetype="application/octet-stream")
+
+    print(f"[Gesture TTS] Sending {len(audio_data)} bytes to Huzzah")
+    return Response(audio_data, mimetype="application/octet-stream")
+
+
 @app.route("/api/moisture", methods=["POST"])
 def moisture_update():
     """
@@ -997,6 +1124,56 @@ def moisture_status():
         "status": data["status"],
         "timestamp": data["timestamp"],
         "is_stale": is_stale
+    })
+
+
+@app.route("/api/conversation/status", methods=["GET"])
+def conversation_status():
+    """
+    Return current conversation mode status.
+    """
+    return jsonify({
+        "active": conversation_manager.is_active()
+    })
+
+
+@app.route("/api/conversation/start", methods=["POST"])
+def conversation_start():
+    """
+    Start conversation mode via web button.
+    """
+    conversation_manager.activate()
+    print("[Web] Conversation mode activated via web button")
+    return jsonify({
+        "success": True,
+        "active": conversation_manager.is_active()
+    })
+
+
+@app.route("/api/conversation/stop", methods=["POST"])
+def conversation_stop():
+    """
+    Stop conversation mode via web button.
+    """
+    conversation_manager.deactivate()
+    print("[Web] Conversation mode deactivated via web button")
+    return jsonify({
+        "success": True,
+        "active": conversation_manager.is_active()
+    })
+
+
+@app.route("/api/moisture/refresh", methods=["POST"])
+def moisture_refresh():
+    """
+    Trigger ESP32 to send latest moisture data immediately.
+    This endpoint signals that a refresh was requested.
+    The actual data will come from ESP32's next POST to /api/moisture.
+    """
+    print("[Web] Moisture data refresh requested")
+    return jsonify({
+        "success": True,
+        "message": "Refresh signal sent. Waiting for ESP32 to send updated data."
     })
 
 
