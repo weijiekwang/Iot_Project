@@ -1,9 +1,9 @@
 # server.py
-# 功能：
-#   1) Web 页面（/）：显示一个"智能盆栽监控系统"的假数据仪表盘
-#   2) /api/stt ：接收 ESP32 发送的原始 PCM，做语音识别，返回对话响应
-#   3) /api/tts ：将文本转换为语音PCM返回给ESP32
-#   4) 对话模式管理：支持"hello world"开启，"bye bye"关闭
+# Functions:
+#   1) Web page (/): Display a "Smart Plant Monitoring System" dashboard
+#   2) /api/stt: Receive raw PCM from ESP32, perform speech recognition, return conversation response
+#   3) /api/tts: Convert text to speech PCM and return to ESP32
+#   4) Conversation mode management: Support "hello world" to start, "bye bye" to stop
 
 from flask import Flask, request, jsonify, Response
 import io
@@ -22,17 +22,17 @@ import threading
 from gesture_recognition import GestureRecognizer
 from config import CAM_STREAM_URL, POE_API_KEY, POE_BOT_NAME
 
-# POE API 客户端
+# POE API client
 import fastapi_poe as fp
 
 app = Flask(__name__)
 
-latest_gesture = None       # 最近一次识别到的手势字符串
-latest_gesture_time = 0.0   # 对应的时间戳
+latest_gesture = None       # Most recently recognized gesture string
+latest_gesture_time = 0.0   # Corresponding timestamp
 gesture_lock = threading.Lock()
 
-# 存储手势识别的TTS音频
-gesture_tts_audio = b""     # 手势对应的TTS音频数据
+# Store TTS audio for gesture recognition
+gesture_tts_audio = b""     # TTS audio data for gestures
 gesture_tts_lock = threading.Lock()
 
 # ========= Moisture sensor data storage =========
@@ -45,13 +45,13 @@ latest_moisture_data = {
 }
 moisture_lock = threading.Lock()
 
-# ========= 对话状态管理 =========
+# ========= Conversation state management =========
 class ConversationManager:
     def __init__(self):
-        self.conversation_mode = False  # 对话模式标志
-        self.last_response = ""  # 存储最新的回复文本
-        self.conversation_history = []  # 存储对话历史
-        self.poe_client = None  # POE API 客户端
+        self.conversation_mode = False  # Conversation mode flag
+        self.last_response = ""  # Store latest response text
+        self.conversation_history = []  # Store conversation history
+        self.poe_client = None  # POE API client
         self._init_poe_client()
 
     def _init_poe_client(self):
@@ -64,7 +64,7 @@ class ConversationManager:
             self.poe_client = None
 
     def is_active(self):
-        """检查对话模式是否激活"""
+        """Check if conversation mode is active"""
         return self.conversation_mode
 
     def activate(self):
@@ -217,10 +217,10 @@ class ConversationManager:
             # Return fallback response on failure
             return "Sorry, I'm having trouble thinking right now. Please try again later."
 
-# 创建全局对话管理器
+# Create global conversation manager
 conversation_manager = ConversationManager()
 
-# ========= 简单网页 =========
+# ========= Simple web page =========
 
 INDEX_HTML = """
 <!DOCTYPE html>
@@ -711,19 +711,19 @@ INDEX_HTML = """
 </body>
 </html>
 """
-# ================== ESP32-CAM 手势识别后台线程（带监看） ==================
+# ================== ESP32-CAM gesture recognition background thread (with preview) ==================
 
-latest_gesture = None       # 最近一次识别到的手势
-latest_gesture_time = 0.0   # 时间戳
+latest_gesture = None       # Most recently recognized gesture
+latest_gesture_time = 0.0   # Timestamp
 gesture_lock = threading.Lock()
 
 
 def gesture_worker():
     """
-    后台线程：从 ESP32-CAM 拉视频流，持续做手势识别。
-    同时在本机弹出一个预览窗口（按 q 关闭预览窗口，但线程继续跑）。
-    出错时会自动重连。
-    当识别到 Hi/Wow/Good 手势时，生成TTS音频供Huzzah播放。
+    Background thread: Pull video stream from ESP32-CAM and perform continuous gesture recognition.
+    Also displays a preview window on local machine (press q to close preview window, but thread continues).
+    Auto-reconnects on errors.
+    When Hi/Wow/Good gestures are detected, generates TTS audio for Huzzah to play.
     """
     global latest_gesture, latest_gesture_time, gesture_tts_audio
 
@@ -808,7 +808,7 @@ def gesture_worker():
                 latest_gesture_time = time.time()
             print("[Gesture] Detected gesture:", gesture)
 
-            # 为 Hi/Wow/Good 生成TTS音频
+            # Generate TTS audio for Hi/Wow/Good gestures
             if gesture in ["Hi", "Wow", "Good"]:
                 try:
                     print(f"[Gesture] Generating TTS for gesture: {gesture}")
@@ -828,16 +828,16 @@ def index():
     return INDEX_HTML
 
 
-# ========= STT：ESP32 -> 服务器（音频转文字） =========
+# ========= STT: ESP32 -> Server (audio to text) =========
 
 recognizer = sr.Recognizer()
 
 @app.route("/api/stt", methods=["POST"])
 def stt_endpoint():
     """
-    接收 ESP32 发送的原始 PCM（16kHz,16bit,mono），
-    转成 WAV 后，用 SpeechRecognition 调用 Google STT，
-    并返回对话响应和TTS音频。
+    Receive raw PCM from ESP32 (16kHz, 16bit, mono),
+    convert to WAV, use SpeechRecognition to call Google STT,
+    and return conversation response and TTS audio.
     """
     raw = request.data
     if not raw:
@@ -845,11 +845,11 @@ def stt_endpoint():
 
     print(f"[STT] Received audio bytes: {len(raw)}")
 
-    # 检查音频数据是否有效
+    # Check if audio data is valid
     if len(raw) < 1000:
         print(f"[STT] WARNING: Audio data too short ({len(raw)} bytes)")
 
-    # 检查音频是否全是静音（全为0或非常接近0）
+    # Check if audio is all silence (all zeros or very close to zero)
     import struct
     samples = struct.unpack(f'{len(raw)//2}h', raw)
     max_amplitude = max(abs(s) for s in samples)
@@ -859,10 +859,10 @@ def stt_endpoint():
     if max_amplitude < 100:
         print("[STT] WARNING: Audio appears to be silent or very quiet!")
 
-    # 把原始 PCM 包装成 WAV（内存中）
+    # Wrap raw PCM into WAV (in memory)
     wav_buf = io.BytesIO()
     with wave.open(wav_buf, "wb") as wf:
-        wf.setnchannels(1)        # 单声道
+        wf.setnchannels(1)        # Mono
         wf.setsampwidth(2)        # 16bit
         wf.setframerate(16000)    # 16kHz
         wf.writeframes(raw)
@@ -872,14 +872,14 @@ def stt_endpoint():
     text = ""
     try:
         with sr.AudioFile(wav_buf) as source:
-            # 调整环境噪音阈值，提高识别率
+            # Adjust ambient noise threshold to improve recognition rate
             recognizer.adjust_for_ambient_noise(source, duration=0.5)
             audio = recognizer.record(source)
 
-        # 检查音频长度
+        # Check audio length
         print(f"[STT] Audio duration: {len(audio.frame_data)} bytes")
 
-        # 现在用英文，如果想识别中文改成 language="zh-CN"
+        # Now using English, change to language="zh-CN" for Chinese recognition
         text = recognizer.recognize_google(audio, language="en-US")
         print(f"[STT] User said: {text}")
 
@@ -920,28 +920,28 @@ def stt_endpoint():
     return jsonify(result)
 
 
-# ========= TTS：服务器 -> ESP32（文字转语音 PCM） =========
+# ========= TTS: Server -> ESP32 (text to speech PCM) =========
 
 # HARDCODED REPLY - COMMENTED OUT (now using LLM responses)
 # REPLY_TEXT = "I love Columbia, test test test"
 
 def generate_tts_pcm(text: str) -> bytes:
     """
-    用 pyttsx3 生成 text 的 WAV，再转成 16kHz 16bit mono PCM。
-    返回：纯 PCM bytes（不含 WAV 头）。
+    Use pyttsx3 to generate WAV from text, then convert to 16kHz 16bit mono PCM.
+    Returns: Pure PCM bytes (without WAV header).
     """
     engine = pyttsx3.init()
     tmp_name = None
 
     try:
-        # 1. 生成临时 WAV 文件
+        # 1. Generate temporary WAV file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp_name = tmp.name
 
         engine.save_to_file(text, tmp_name)
         engine.runAndWait()
 
-        # 2. 读取 WAV 内容
+        # 2. Read WAV content
         with wave.open(tmp_name, "rb") as wf:
             n_channels = wf.getnchannels()
             sampwidth = wf.getsampwidth()
@@ -949,17 +949,17 @@ def generate_tts_pcm(text: str) -> bytes:
             n_frames = wf.getnframes()
             frames = wf.readframes(n_frames)
 
-        # 3. 转单声道
+        # 3. Convert to mono
         if n_channels != 1:
             frames = audioop.tomono(frames, sampwidth, 1.0, 1.0)
             n_channels = 1
 
-        # 4. 转 16bit
+        # 4. Convert to 16bit
         if sampwidth != 2:
             frames = audioop.lin2lin(frames, sampwidth, 2)
             sampwidth = 2
 
-        # 5. 重采样到 16000Hz
+        # 5. Resample to 16000Hz
         if framerate != 16000:
             frames, _ = audioop.ratecv(
                 frames, sampwidth, n_channels,
@@ -986,21 +986,21 @@ print("[TTS] TTS engine ready (will generate dynamically from LLM responses)")
 @app.route("/api/tts", methods=["GET"])
 def tts_endpoint():
     """
-    根据存储的最新回复文本生成TTS音频，流式返回PCM数据。
-    ESP32直接接收并播放，不需要base64解码，节省内存。
+    Generate TTS audio based on stored latest response text, return PCM data as stream.
+    ESP32 receives and plays directly, no base64 decoding needed, saves memory.
     """
     response_text = conversation_manager.last_response
 
     if not response_text:
-        # 如果没有回复文本，返回空音频
+        # If no response text, return empty audio
         return Response(b"", mimetype="application/octet-stream")
 
     try:
-        # 实时生成TTS音频
+        # Generate TTS audio in real-time
         tts_pcm = generate_tts_pcm(response_text)
         print(f"[TTS] Sending {len(tts_pcm)} bytes to ESP32")
 
-        # 清空已使用的回复文本
+        # Clear used response text
         conversation_manager.last_response = ""
 
         return Response(tts_pcm, mimetype="application/octet-stream")
@@ -1028,8 +1028,8 @@ def tts_test():
 @app.route("/api/gesture_status", methods=["GET"])
 def gesture_status():
     """
-    返回最近一次识别到的手势。
-    如果超过 3 秒没有新的手势，则认为当前没有手势（返回 null）。
+    Return the most recently recognized gesture.
+    If more than 3 seconds have passed without a new gesture, consider there is no current gesture (return null).
     """
     with gesture_lock:
         g = latest_gesture
@@ -1037,7 +1037,7 @@ def gesture_status():
 
     now = time.time()
     if t == 0 or (now - t) > 3.0:
-        # 超过 3 秒没更新，当作没有手势
+        # More than 3 seconds without update, treat as no gesture
         g_out = None
     else:
         g_out = g
@@ -1051,15 +1051,15 @@ def gesture_status():
 @app.route("/api/gesture_tts", methods=["GET"])
 def gesture_tts():
     """
-    返回手势识别对应的TTS音频。
-    ESP32 Huzzah调用此接口获取Hi/Wow/Good的语音并播放。
-    获取后会清空音频数据，避免重复播放。
+    Return TTS audio corresponding to gesture recognition.
+    ESP32 Huzzah calls this interface to get Hi/Wow/Good voice and play.
+    After retrieval, clears audio data to avoid repeated playback.
     """
     global gesture_tts_audio
 
     with gesture_tts_lock:
         audio_data = gesture_tts_audio
-        gesture_tts_audio = b""  # 清空已使用的音频
+        gesture_tts_audio = b""  # Clear used audio
 
     if not audio_data:
         print("[Gesture TTS] No gesture audio available")

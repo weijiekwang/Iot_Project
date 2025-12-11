@@ -7,7 +7,7 @@ import time
 
 class GestureRecognizer:
     def __init__(self):
-        # 初始化 MediaPipe Pose
+        # Initialize MediaPipe Pose
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(
             min_detection_confidence=0.5,
@@ -15,44 +15,44 @@ class GestureRecognizer:
         )
         self.mp_drawing = mp.solutions.drawing_utils
 
-        # 用于跟踪头部位置历史（点头检测）
+        # Track head position history (for nod detection)
         self.nose_y_history = deque(maxlen=15)
 
-        # 用于跟踪头部位置历史（摇头检测）
+        # Track head position history (for shake detection)
         self.nose_x_history = deque(maxlen=15)
 
-        # 用于跟踪手部位置（用于挥手检测）
+        # Track hand position (for wave detection)
         self.wrist_history = deque(maxlen=10)
 
-        # 用于跟踪鼓掌动作
+        # Track clap motion
         self.clap_history = deque(maxlen=10)
 
-        # 冷却时间，避免重复识别
+        # Cooldown time to avoid repeated recognition
         self.last_gesture_time = 0
-        self.gesture_cooldown = 2.0  # 2秒冷却时间
+        self.gesture_cooldown = 2.0  # 2 second cooldown time
         
     def calculate_distance(self, point1, point2):
-        """计算两点之间的欧几里得距离"""
+        """Calculate Euclidean distance between two points"""
         return np.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
-    
+
     def detect_wave(self, landmarks, image_width, image_height):
-        """检测挥手打招呼"""
-        # 获取右手腕和左手腕的位置
+        """Detect wave gesture"""
+        # Get right and left wrist positions
         right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
         left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
         right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
         left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
         nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
         
-        # 记录手腕位置
+        # Record wrist position
         wrist_pos = None
         is_hand_raised = False
-        
-        # 检查右手是否举起（高于肩膀且靠近头部）
+
+        # Check if right hand is raised (higher than shoulder and close to head)
         if right_wrist.y < right_shoulder.y and right_wrist.y < nose.y + 0.1:
             wrist_pos = (right_wrist.x * image_width, right_wrist.y * image_height)
             is_hand_raised = True
-        # 检查左手是否举起
+        # Check if left hand is raised
         elif left_wrist.y < left_shoulder.y and left_wrist.y < nose.y + 0.1:
             wrist_pos = (left_wrist.x * image_width, left_wrist.y * image_height)
             is_hand_raised = True
@@ -60,21 +60,21 @@ class GestureRecognizer:
         if is_hand_raised and wrist_pos:
             self.wrist_history.append(wrist_pos)
             
-            # 如果有足够的历史数据，检测左右摆动
+            # If there's enough history data, detect left-right swinging
             if len(self.wrist_history) >= 8:
                 positions = list(self.wrist_history)
-                # 计算水平位置的变化
+                # Calculate horizontal position changes
                 x_positions = [p[0] for p in positions]
                 x_changes = [x_positions[i] - x_positions[i-1] for i in range(1, len(x_positions))]
-                
-                # 检测是否有明显的左右摆动（变化方向改变）
+
+                # Detect obvious left-right swinging (direction changes)
                 direction_changes = 0
                 for i in range(1, len(x_changes)):
                     if (x_changes[i] > 5 and x_changes[i-1] < -5) or \
                        (x_changes[i] < -5 and x_changes[i-1] > 5):
                         direction_changes += 1
-                
-                # 如果有至少2次方向改变，认为是挥手
+
+                # If there are at least 2 direction changes, consider it a wave
                 if direction_changes >= 2:
                     return True
         else:
@@ -83,7 +83,7 @@ class GestureRecognizer:
         return False
     
     def detect_nod(self, landmarks, image_height):
-        """检测点头"""
+        """Detect nod gesture"""
         nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
         nose_y = nose.y * image_height
         
@@ -92,39 +92,39 @@ class GestureRecognizer:
         if len(self.nose_y_history) >= 12:
             positions = list(self.nose_y_history)
             
-            # 计算运动范围
+            # Calculate movement range
             max_y = max(positions)
             min_y = min(positions)
             movement_range = max_y - min_y
-            
-            # 降低运动范围要求（从12降到8像素）
+
+            # Lower movement range requirement (from 12 to 8 pixels)
             if movement_range < 8:
                 return False
-            
-            # 寻找上下运动模式（降低阈值）
+
+            # Find up-down movement pattern (lower threshold)
             peaks = 0
             valleys = 0
-            
+
             for i in range(2, len(positions) - 2):
-                # 检测波峰（向下移动）- 降低阈值
-                if (positions[i] > positions[i-1] + 3 and 
+                # Detect peaks (downward movement) - lower threshold
+                if (positions[i] > positions[i-1] + 3 and
                     positions[i] > positions[i-2] + 2 and
                     positions[i] > positions[i+1] + 3):
                     peaks += 1
-                # 检测波谷（向上移动）
-                elif (positions[i] < positions[i-1] - 3 and 
+                # Detect valleys (upward movement)
+                elif (positions[i] < positions[i-1] - 3 and
                       positions[i] < positions[i-2] - 2 and
                       positions[i] < positions[i+1] - 3):
                     valleys += 1
-            
-            # 点头应该有至少1个明显的波峰和波谷
+
+            # Nod should have at least 1 obvious peak and valley
             if peaks >= 1 and valleys >= 1:
                 return True
         
         return False
     
     def detect_shake(self, landmarks, image_width):
-        """检测摇头"""
+        """Detect head shake gesture"""
         nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
         nose_x = nose.x * image_width
         
