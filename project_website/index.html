@@ -1,0 +1,352 @@
+<!DOCTYPE HTML>
+<!--
+    Prologue by HTML5 UP
+    html5up.net | @n33co
+    Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+    <head>
+        <title>Columbia University EECS E4764 IoT Project Report #16 - Smart Plant IoT System</title>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <!--[if lte IE 8]><script src="assets/js/ie/html5shiv.js"></script><![endif]-->
+        <link rel="stylesheet" href="assets/css/main.css" />
+        <!--[if lte IE 8]><link rel="stylesheet" href="assets/css/ie8.css" /><![endif]-->
+        <!--[if lte IE 9]><link rel="stylesheet" href="assets/css/ie9.css" /><![endif]-->
+    </head>
+    <body>
+
+        <!-- Header -->
+        <div id="header">
+
+            <div class="top">
+
+                <!-- Logo -->
+                <div id="logo">
+                    <h1 id="title">Smart Plant IoT System</h1>
+                    <p>
+                        Columbia University <br>
+                        EECS E4764 Fall '25 <br>
+                        Artificial Intelligence of Things (AIoT) <br>
+                        Group 16 Project Report
+                    </p>
+                </div>
+
+                <!-- Nav -->
+                <nav id="nav">
+                    <ul>
+                        <li><a href="#top" id="top-link" class="skel-layers-ignoreHref"><span class="icon fa-home">Abstract</span></a></li>
+                        <li><a href="#motivation" id="motivation-link" class="skel-layers-ignoreHref"><span class="icon fa-th">Motivation</span></a></li>
+                        <li><a href="#system" id="system-link" class="skel-layers-ignoreHref"><span class="icon fa-th">System</span></a></li>
+                        <li><a href="#results" id="results-link" class="skel-layers-ignoreHref"><span class="icon fa-th">Results</span></a></li>
+                        <li><a href="#references" id="references-link" class="skel-layers-ignoreHref"><span class="icon fa-th">References</span></a></li>
+                        <li><a href="#team" id="team-link" class="skel-layers-ignoreHref"><span class="icon fa-user">Our Team</span></a></li>
+                        <li><a href="#contact" id="contact-link" class="skel-layers-ignoreHref"><span class="icon fa-envelope">Contact</span></a></li>
+                    </ul>
+                </nav>
+
+            </div>
+
+            <div class="bottom">
+
+                <!-- Social Icons (optional placeholders) -->
+                <ul class="icons">
+                    <li><a href="#" class="icon fa-twitter"><span class="label">Twitter</span></a></li>
+                    <li><a href="#" class="icon fa-facebook"><span class="label">Facebook</span></a></li>
+                    <li><a href="#" class="icon fa-github"><span class="label">Github</span></a></li>
+                    <li><a href="#" class="icon fa-dribbble"><span class="label">Dribbble</span></a></li>
+                    <li><a href="#contact" class="icon fa-envelope"><span class="label">Email</span></a></li>
+                </ul>
+
+            </div>
+
+        </div>
+
+        <!-- Main -->
+        <div id="main">
+
+            <!-- Intro / Abstract -->
+            <section id="top" class="one dark cover">
+                <div class="container">
+
+                    <!-- YouTube video -->
+                    <iframe width="560" height="315"
+                            src="https://www.youtube.com/embed/FttYlD2HW5Q"
+                            frameborder="0"
+                            allowfullscreen>
+                    </iframe>
+
+                    <h2 class="alt">Smart Plant IoT System</h2>
+                    <p>
+                        Smart Plant IoT System is a comprehensive IoT platform featuring gesture recognition,
+                        voice interaction, soil moisture monitoring, and a real-time web dashboard for smart plant care.
+                    </p>
+                    <p>
+                        The system combines ESP32-based hardware, a Flask server, MediaPipe gesture detection,
+                        speech processing, and a browser-based dashboard to provide an intuitive and interactive
+                        way to monitor and care for indoor plants.
+                    </p>
+
+                    <footer>
+                        <a href="#motivation" class="button scrolly">Motivation</a>
+                    </footer>
+
+                </div>
+            </section>
+
+            <!-- Motivation -->
+            <section id="motivation" class="two">
+                <div class="container">
+
+                    <header>
+                        <h2>Motivation</h2>
+                    </header>
+
+                    <p align="left">
+                        Busy plant owners often find it difficult to monitor plant health and watering needs
+                        on a daily basis. Traditional sensor-based systems provide numbers but lack a natural,
+                        human-friendly way to interact with the system.
+                    </p>
+
+                    <p align="left">
+                        Our goals are:
+                    </p>
+
+                    <ul align="left">
+                        <li>Enable <strong>voice interaction</strong> with the plant system through a conversational agent.</li>
+                        <li>Provide <strong>real-time gesture feedback</strong> using a camera and computer vision.</li>
+                        <li>Monitor <strong>soil moisture</strong> continuously and visualize its history.</li>
+                        <li>Offer an integrated <strong>web dashboard</strong> that shows system status in real time.</li>
+                    </ul>
+
+                </div>
+            </section>
+
+            <!-- System / Description -->
+            <section id="system" class="three">
+                <div class="container">
+
+                    <header>
+                        <h2>System</h2>
+                    </header>
+
+                    <p align="left">
+                        The Smart Plant IoT System consists of two ESP32-based devices and a Flask server
+                        running on a computer. The ESP32 Huzzah handles voice interaction, OLED display,
+                        and soil moisture sensing, while the ESP32-CAM provides a video stream for gesture
+                        recognition. The Flask server coordinates speech processing, gesture recognition,
+                        moisture data storage, and the web dashboard.
+                    </p>
+
+                    <h3 align="left">Architecture</h3>
+
+                    <article class="item">
+                        <a href="#" class="image fit">
+                            <img src="images/Architecture.jpg" alt="System Architecture Diagram" />
+                        </a>
+                        <header>
+                            <h3>System Architecture Overview</h3>
+                        </header>
+                    </article>
+
+                    <h3 align="left">Hardware Components</h3>
+                    <ul align="left">
+                        <li><strong>ESP32 Huzzah:</strong> Main controller for microphone (SPH0645), speaker (MAX98357A),
+                            OLED display (SSD1306), and soil moisture sensor (GPIO 39).</li>
+                        <li><strong>ESP32-CAM:</strong> Streams video from the OV2640 camera module via <code>:81/stream</code>
+                            for gesture recognition.</li>
+                        <li><strong>Soil Moisture Sensor:</strong> Provides continuous readings of soil moisture level.</li>
+                        <li><strong>Network:</strong> Both ESP32 boards connect to the same WiFi network as the Flask server.</li>
+                    </ul>
+
+                    <article class="item">
+                        <a href="#" class="image fit">
+                            <img src="images/Hardware.jpg" alt="Hardware Setup" />
+                        </a>
+                        <header>
+                            <h3>Hardware Setup</h3>
+                        </header>
+                    </article>
+
+                    <h3 align="left">Server and Software</h3>
+                    <ul align="left">
+                        <li><strong>Flask Server (server.py):</strong> Central hub providing REST APIs and serving the web dashboard.</li>
+                        <li><strong>Web Dashboard (/):</strong> Shows moisture history chart, gesture status, and conversation controls.</li>
+                        <li><strong>STT/TTS API:</strong> <code>/api/stt</code> and <code>/api/tts</code> endpoints using
+                            Google Speech Recognition and <code>pyttsx3</code> for text-to-speech, plus POE API (GPT-5) for conversation.</li>
+                        <li><strong>Gesture Recognition Thread:</strong> Uses OpenCV to capture frames from ESP32-CAM and
+                            MediaPipe for hand/pose detection and gesture classification (Hi, Wow, Good).</li>
+                        <li><strong>Moisture Data Storage:</strong> Maintains latest moisture data in memory with thread-safe
+                            access for both APIs and the dashboard.</li>
+                    </ul>
+
+                </div>
+            </section>
+
+            <!-- Results / Current Progress -->
+            <section id="results" class="two">
+                <div class="container">
+
+                    <header>
+                        <h2>Results and Current Progress</h2>
+                    </header>
+
+                    <p align="left">
+                        The current implementation demonstrates an end-to-end pipeline connecting the ESP32 devices
+                        and the Flask server. We have:
+                    </p>
+
+                    <ul align="left">
+                        <li>Verified soil moisture sensing and real-time updates on the web dashboard.</li>
+                        <li>Established a working video stream from ESP32-CAM and tested gesture detection with MediaPipe.</li>
+                        <li>Implemented a voice interaction flow from microphone input to STT, GPT-based reply, and TTS output.</li>
+                        <li>Integrated multiple threads and APIs on the server to run concurrently without blocking.</li>
+                    </ul>
+
+                    <!-- Smart Planter 实物 -->
+                    <article class="item">
+                        <a href="#" class="image fit">
+                            <img src="images/ResultSmartPlanter.jpg" alt="Smart Planter Result" />
+                        </a>
+                        <header>
+                            <h3>Smart Plant IoT System Prototype</h3>
+                        </header>
+                    </article>
+
+                    <!-- Web Dashboard 截图 -->
+                    <article class="item">
+                        <a href="#" class="image fit">
+                            <img src="images/ResultWeb.png" alt="Web Dashboard Result" />
+                        </a>
+                        <header>
+                            <h3>Web Dashboard for Moisture and Gesture Monitoring</h3>
+                        </header>
+                    </article>
+
+                </div>
+            </section>
+
+            <!-- References -->
+            <section id="references" class="three">
+                <div class="container">
+
+                    <header>
+                        <h2>References</h2>
+                    </header>
+
+                    <ul align="left">
+                        <li>ESP32 and ESP32-CAM Official Documentation.</li>
+                        <li>Flask Web Framework documentation.</li>
+                        <li>OpenCV and MediaPipe documentation for real-time gesture recognition.</li>
+                        <li>SpeechRecognition and pyttsx3 libraries for STT/TTS.</li>
+                        <li>POE API documentation for GPT-based conversational interaction.</li>
+                    </ul>
+
+                </div>
+            </section>
+
+            <!-- Our Team -->
+            <section id="team" class="two">
+                <div class="container">
+
+                    <header>
+                        <h2>Our Team (Group 16)</h2>
+                    </header>
+
+                    <div class="row">
+                        <div class="4u 12u$(mobile)">
+                            <article class="item">
+                                <a href="#" class="image fit">
+                                    <img src="images/WeijieWang.jpg" alt="Weijie Wang" />
+                                </a>
+                                <header>
+                                    <h3>Weijie Wang (UNI: ww2739)</h3>
+                                    <p>
+                                        System integration, ESP32 hardware, and web dashboard design.
+                                    </p>
+                                </header>
+                            </article>
+                        </div>
+                        <div class="4u 12u$(mobile)">
+                            <article class="item">
+                                <a href="#" class="image fit">
+                                    <img src="images/KeLu.jpg" alt="Ke Lu" />
+                                </a>
+                                <header>
+                                    <h3>Ke Lu (UNI: kl3753)</h3>
+                                    <p>
+                                        Voice interaction pipeline, Flask backend, and API integration.
+                                    </p>
+                                </header>
+                            </article>
+                        </div>
+                        <div class="4u$ 12u$(mobile)">
+                            <article class="item">
+                                <a href="#" class="image fit">
+                                    <img src="images/HaojiaZhu.jpg" alt="Haojia Zhu" />
+                                </a>
+                                <header>
+                                    <h3>Haojia Zhu (UNI: hz3087)</h3>
+                                    <p>
+                                        Gesture recognition module, camera setup, and moisture data handling.
+                                    </p>
+                                </header>
+                            </article>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- Contact -->
+            <section id="contact" class="four">
+                <div class="container">
+
+                    <header>
+                        <h2>Contact</h2>
+                    </header>
+
+                    <p align="left">
+                        <strong>Group 16 – Smart Plant IoT System</strong><br><br>
+
+                        <strong>Team Members:</strong><br>
+                        Weijie Wang (UNI: ww2739)<br>
+                        Ke Lu (UNI: kl3753)<br>
+                        Haojia Zhu (UNI: hz3087)<br><br>
+
+                        <strong>Department:</strong>
+                        Columbia University <a href="http://www.ee.columbia.edu">Department of Electrical Engineering</a><br>
+                        <strong>Course:</strong> EECS E4764 – IoT / AIoT (Fall '25)<br>
+                        <strong>Instructor:</strong>
+                        <a href="https://www.engineering.columbia.edu/faculty-staff/directory/xiaofan-fred-jiang">
+                            Professor Xiaofan (Fred) Jiang
+                        </a>
+                    </p>
+
+                </div>
+            </section>
+
+        </div>
+
+        <!-- Footer -->
+        <div id="footer">
+
+            <!-- Copyright -->
+            <ul class="copyright">
+                <li>&copy; IoT Project | All rights reserved.</li>
+                <li>Design: <a href="http://html5up.net">HTML5 UP</a></li>
+            </ul>
+
+        </div>
+
+        <!-- Scripts -->
+        <script src="assets/js/jquery.min.js"></script>
+        <script src="assets/js/jquery.scrolly.min.js"></script>
+        <script src="assets/js/jquery.scrollzer.min.js"></script>
+        <script src="assets/js/skel.min.js"></script>
+        <script src="assets/js/util.js"></script>
+        <!--[if lte IE 8]><script src="assets/js/ie/respond.min.js"></script><![endif]-->
+        <script src="assets/js/main.js"></script>
+
+    </body>
+</html>

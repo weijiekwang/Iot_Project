@@ -3,6 +3,7 @@
 A comprehensive IoT system featuring gesture recognition, voice interaction, moisture monitoring, and real-time web dashboard for smart plant care.
 
 ## Table of Contents
+- [Quick Start](#quick-start)
 - [System Overview](#system-overview)
 - [Features](#features)
 - [Hardware Requirements](#hardware-requirements)
@@ -17,6 +18,25 @@ A comprehensive IoT system featuring gesture recognition, voice interaction, moi
 - [API Reference](#api-reference)
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
+
+## Quick Start
+
+**Already set up? Start your system in 3 steps:**
+
+1. **Start Server** (on computer):
+   ```bash
+   conda activate SmartPlanter
+   cd Iot_Project
+   python server.py
+   ```
+
+2. **Power on ESP32-CAM** (connects automatically to WiFi)
+
+3. **Power on ESP32 Huzzah** (connects automatically, starts all sensors)
+
+4. **Open browser**: `http://localhost:8000`
+
+**First time setup?** Continue reading below for complete installation instructions.
 
 ## System Overview
 
@@ -120,37 +140,27 @@ This IoT system integrates multiple technologies to create an intelligent plant 
 Iot_Project/
 ├── server.py                      # Main Flask server (STT/TTS/Gesture/Web)
 ├── config.py                      # Configuration file (WiFi, IPs, API keys)
-├── gesture_recognition.py         # Gesture detection module
-├── requirements.txt               # Python dependencies
+├── requirements.txt               # Python dependencies for server
 │
-├── Gesture/                       # Gesture recognition module
-│   ├── gesture_recognition.py
-│   ├── requirements.txt
-│   └── README.md
+├── ESP32 Hardware Files (MicroPython):
+├── main.py                        # ESP32 main program (MicroPython)
+├── mic_module.py                  # Microphone I2S module
+├── speaker_module.py              # Speaker I2S module
+├── oled_module.py                 # OLED display module
+├── wifi_manager.py                # WiFi connection manager
+├── moisture_sensor_module.py      # Moisture sensor reading module
+├── network_client.py              # HTTP client for server communication
+├── ssd1306.py                     # SSD1306 OLED display library
+├── water_pump_test.py             # Water pump control module
 │
-├── Voice/                         # Voice recognition module
-│   ├── voice_recognition.py
-│   ├── requirements.txt
-│   └── README.md
+├── Arduino/                       # Arduino code for ESP32-CAM
+│   └── CameraWebServer/
+│       └── CameraWebServer.ino    # ESP32-CAM video streaming
 │
-├── Web/                           # Web dashboard
-│   ├── app.py
-│   ├── requirements.txt
-│   └── README.md
+├── data/                          # Data storage
+│   └── conversation_log.json      # Conversation history
 │
-├── Hardware/                      # ESP32 hardware code
-│   ├── main.py                    # ESP32 main program (MicroPython)
-│   ├── config.py                  # Hardware configuration
-│   ├── mic_module.py              # Microphone I2S module
-│   ├── speaker_module.py          # Speaker I2S module
-│   ├── oled_module.py             # OLED display module
-│   ├── wifi_manager.py            # WiFi connection manager
-│   ├── requirements.txt           # Server-side dependencies
-│   └── README.md
-│
-└── Arduino/                       # Arduino code for ESP32-CAM
-    └── CameraWebServer/
-        └── CameraWebServer.ino    # ESP32-CAM video streaming
+└── project_website/               # Project documentation website
 ```
 
 ## Step-by-Step Setup Guide
@@ -301,7 +311,7 @@ TTS test:       GET  /api/tts_test
 
 1. Download MicroPython firmware for ESP32:
    - Visit: https://micropython.org/download/esp32/
-   - Download the latest stable `.bin` file
+   - Download the latest stable `.bin` file (e.g., `esp32-20240222-v1.22.2.bin`)
 
 2. Install esptool:
    ```bash
@@ -310,67 +320,88 @@ TTS test:       GET  /api/tts_test
 
 3. Erase flash and upload firmware:
    ```bash
-   # Find your serial port (COM3, /dev/ttyUSB0, etc.)
-   # Windows: Check Device Manager
-   # macOS/Linux: ls /dev/tty*
+   # Find your serial port:
+   # Windows: Check Device Manager (e.g., COM3)
+   # macOS: ls /dev/tty.* (e.g., /dev/tty.usbserial-0001)
+   # Linux: ls /dev/ttyUSB* (e.g., /dev/ttyUSB0)
 
-   # Erase flash
+   # Erase flash (replace COM3 with your port)
    esptool.py --chip esp32 --port COM3 erase_flash
 
-   # Upload MicroPython
+   # Upload MicroPython firmware
    esptool.py --chip esp32 --port COM3 write_flash -z 0x1000 esp32-*.bin
    ```
 
 **Upload Project Code:**
 
-1. Install mpremote:
+1. Install mpfshell:
    ```bash
-   pip install mpremote
+   pip install mpfshell
    ```
 
-2. Upload files to ESP32:
-   ```bash
-   # Navigate to Hardware directory
-   cd Hardware
-
-   # Upload configuration
-   mpremote connect COM3 fs cp config.py :
-
-   # Upload modules
-   mpremote connect COM3 fs cp wifi_manager.py :
-   mpremote connect COM3 fs cp mic_module.py :
-   mpremote connect COM3 fs cp speaker_module.py :
-   mpremote connect COM3 fs cp oled_module.py :
-   mpremote connect COM3 fs cp moisture_sensor_module.py :
-
-   # Upload main program
-   mpremote connect COM3 fs cp main.py :
-
-   # Upload SSD1306 library (for OLED)
-   mpremote connect COM3 fs cp ../ssd1306.py :
-   ```
-
-   **Or use the upload script:**
-   ```bash
-   chmod +x upload_to_esp32.sh
-   ./upload_to_esp32.sh
-   ```
-
-3. Configure ESP32 settings in `Hardware/config.py`:
+2. Configure ESP32 settings in `config.py` (project root):
    ```python
-   # WiFi
+   # WiFi Configuration
    WIFI_SSID = "Your_WiFi_SSID"
    WIFI_PASSWORD = "Your_WiFi_Password"
 
-   # Server
-   SERVER_IP = "10.206.128.179"  # Your computer's IP
+   # Server Configuration
+   SERVER_IP = "10.206.128.179"  # Your computer's IP address
    SERVER_PORT = 8000
    ```
 
-4. Reset ESP32 to run the program:
+3. Upload all required files to ESP32 using mpfshell:
    ```bash
-   mpremote connect COM3 reset
+   # Navigate to project root directory
+   cd Iot_Project
+
+   # Upload all files in one command (replace COM3 with your port)
+   mpfshell -c "open COM3; put main.py; put config.py; put mic_module.py; put moisture_sensor_module.py; put network_client.py; put oled_module.py; put speaker_module.py; put ssd1306.py; put water_pump_test.py; put wifi_manager.py; ls"
    ```
+
+   **Files being uploaded:**
+   - `main.py` - Main program for ESP32
+   - `config.py` - Configuration (WiFi, server IP, etc.)
+   - `mic_module.py` - I2S microphone driver
+   - `moisture_sensor_module.py` - Moisture sensor reading module
+   - `network_client.py` - HTTP client for server communication
+   - `oled_module.py` - OLED display driver
+   - `speaker_module.py` - I2S speaker driver
+   - `ssd1306.py` - SSD1306 OLED library
+   - `water_pump_test.py` - Water pump control module
+   - `wifi_manager.py` - WiFi connection manager
+
+4. Verify files were uploaded successfully:
+   ```bash
+   mpfshell -c "open COM3; ls"
+   ```
+
+   You should see all the uploaded files listed.
+
+5. Reset ESP32 to run the program:
+   ```bash
+   # Press the RESET button on ESP32
+   # Or use:
+   mpfshell -c "open COM3; repl"
+   # Then press Ctrl+D in the REPL to soft reset
+   ```
+
+**Alternative: Upload files individually**
+
+If the single command fails, you can upload files one by one:
+
+```bash
+mpfshell -c "open COM3; put main.py"
+mpfshell -c "open COM3; put config.py"
+mpfshell -c "open COM3; put mic_module.py"
+mpfshell -c "open COM3; put moisture_sensor_module.py"
+mpfshell -c "open COM3; put network_client.py"
+mpfshell -c "open COM3; put oled_module.py"
+mpfshell -c "open COM3; put speaker_module.py"
+mpfshell -c "open COM3; put ssd1306.py"
+mpfshell -c "open COM3; put water_pump_test.py"
+mpfshell -c "open COM3; put wifi_manager.py"
+```
 
 #### Step 3.3: Hardware Wiring
 
@@ -418,20 +449,56 @@ The web dashboard is integrated into the main `server.py`, so if the server is r
 
 ### Starting the System
 
-1. **Start the Server** (on your computer):
+Follow these steps in order to start the complete Smart Plant IoT System:
+
+1. **Start the Flask Server** (on your computer):
    ```bash
+   # Activate conda environment
    conda activate SmartPlanter
+
+   # Navigate to project directory
+   cd Iot_Project
+
+   # Run the main server
    python server.py
    ```
 
-2. **Power on ESP32-CAM** - It will automatically connect to WiFi and start streaming
+   Wait until you see the server startup message showing all endpoints are ready.
 
-3. **Power on ESP32 Huzzah** - It will:
-   - Connect to WiFi
-   - Initialize hardware (mic, speaker, OLED, sensors)
-   - Start listening for voice commands
+2. **Power on ESP32-CAM**:
+   - Connect to power supply (5V USB)
+   - ESP32-CAM will automatically connect to WiFi
+   - Camera stream starts at `http://[CAM_IP]:81/stream`
+   - Gesture recognition will begin automatically on the server
 
-4. **Open Web Dashboard**: Navigate to `http://localhost:8000` in your browser
+3. **Power on ESP32 Huzzah** (Main Controller):
+   - Connect to power supply (5V USB or battery)
+   - The ESP32 will automatically:
+     - Connect to WiFi network (configured in `config.py`)
+     - Initialize I2S microphone and speaker
+     - Initialize OLED display (shows "System Ready")
+     - Start reading moisture sensor
+     - Begin listening for voice commands
+
+   If everything is working correctly, the OLED display will show:
+   ```
+   Smart Plant System
+   WiFi: Connected
+   Server: Ready
+   ```
+
+4. **Open Web Dashboard**:
+   - On the same computer running the server, open a web browser
+   - Navigate to: `http://localhost:8000`
+   - Or from another device on the same network: `http://[SERVER_IP]:8000`
+   - You should see real-time moisture data and system status
+
+**Startup Checklist:**
+- ✓ Server running and showing all endpoints ready
+- ✓ ESP32-CAM streaming video (test in browser)
+- ✓ ESP32 Huzzah OLED displays "System Ready"
+- ✓ Web dashboard loads and shows current data
+- ✓ Moisture sensor reading appears on dashboard
 
 ### Voice Interaction
 
@@ -852,10 +919,10 @@ ESP32 ADC → Read Sensor → Calculate Percentage
 
 ## Additional Resources
 
-- **Gesture Recognition Details**: [Gesture/README.md](Gesture/README.md)
-- **Voice Recognition Details**: [Voice/README.md](Voice/README.md)
-- **Web Dashboard Details**: [Web/README.md](Web/README.md)
-- **Hardware Setup Guide**: [Hardware/README.md](Hardware/README.md)
+- **MicroPython Documentation**: https://docs.micropython.org/en/latest/esp32/quickref.html
+- **MediaPipe Hand Tracking**: https://google.github.io/mediapipe/solutions/hands.html
+- **POE API Documentation**: https://creator.poe.com/docs/quick-start
+- **ESP32-CAM Examples**: https://randomnerdtutorials.com/esp32-cam-video-streaming-web-server-camera-home-assistant/
 
 ## License
 
